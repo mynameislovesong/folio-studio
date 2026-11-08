@@ -66,7 +66,7 @@ try {
   await page.getByText('레이어가 없습니다', {exact: true}).waitFor();
   assert.equal(await page.getByTestId('layer-row').count(), 0);
   const emptyPng = await png(1, [[0, 0]]);
-  assert.deepEqual([emptyPng.width, emptyPng.height, emptyPng.colors[0][3]], [1080, 1080, 255]);
+  assert.deepEqual([emptyPng.width, emptyPng.height, ...emptyPng.colors[0]], [1700, 800, 0, 0, 0, 255]);
   await button('보관함').click();
   await button('템플릿').click();
   await page.getByRole('button', {name: /나이트폴 아카이브 기본 제공 예제/}).click();

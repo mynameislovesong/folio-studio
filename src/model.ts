@@ -111,7 +111,7 @@ export function makeLayer(kind: Kind, patch: LayerPatch = {}): Layer {
 
 export function newProject(name = '제목 없는 프로젝트'): Project {
   return {
-    version: 1, id: uid(), name, width: 1080, height: 1080, background: '#262e2c',
+    version: 1, id: uid(), name, width: 1700, height: 800, background: '#000000',
     backgroundImage: '', transparent: false, grid: false, guides: true, snap: true,
     outputScale: 1, layers: [], groups: {}, fonts: [],
   };
@@ -222,8 +222,8 @@ export function readProject(value: unknown): Project {
   });
   project.groups = Object.fromEntries(groupMap);
   const {min, max} = canvasSizeLimits;
-  project.width = Math.round(num(data.width, 1080, min, max));
-  project.height = Math.round(num(data.height, 1080, min, max));
+  project.width = Math.round(num(data.width, project.width, min, max));
+  project.height = Math.round(num(data.height, project.height, min, max));
   if (data.canvasResize) {
     const settings = record(data.canvasResize);
     project.canvasResize = {
