@@ -1,6 +1,6 @@
 import {useEffect, useRef, useState} from 'react';
 import type {ReactNode} from 'react';
-import {AlertCircle, CodeXml, Download, FileImage, FolderOpen, Plus, Save, Trash2, Upload, X, Copy} from 'lucide-react';
+import {AlertCircle, BookOpen, CodeXml, Download, FileImage, FolderOpen, Plus, Save, Trash2, Upload, X, Copy} from 'lucide-react';
 import {Artboard} from './Artboard';
 import {checkSvg, cleanSvg, compileHtml, svgSize} from './code';
 import {defaultCss, defaultHtml, makeLayer, newProject} from './model';
@@ -8,6 +8,7 @@ import type {Layer, LayerPatch, Project} from './model';
 import {download} from './storage';
 import type {SavedProject, SavedTemplate} from './storage';
 import {exportPng} from './export';
+import {templateGuide} from './templateGuide';
 
 type DialogNotice = {message: string; error?: boolean};
 
@@ -23,6 +24,30 @@ export function Modal({title, subtitle, children, close, notice, wide = false}: 
     {children}
     {notice && <p role={notice.error ? 'alert' : 'status'} className={'modal-notice' + (notice.error ? ' error-box' : '')}>{notice.message}</p>}
   </dialog>;
+}
+
+function TemplateGuideDialog({close}: {close: () => void}) {
+  const guide = useRef<HTMLTextAreaElement>(null);
+  const [feedback, setFeedback] = useState<DialogNotice>();
+
+  async function copyGuide() {
+    try {
+      await navigator.clipboard.writeText(templateGuide);
+      setFeedback({message: '지침 전체를 복사했습니다.'});
+    } catch {
+      guide.current?.focus();
+      guide.current?.select();
+      setFeedback({message: '자동 복사가 차단됐습니다. 선택된 지침을 Ctrl+C 또는 Cmd+C로 복사하세요.', error: true});
+    }
+  }
+
+  return <Modal title="캐릭터 소개 HTML 명함 제작 공통 지침" wide close={close} notice={feedback}>
+    <textarea className="guide-text" ref={guide} value={templateGuide} readOnly aria-label="제작 지침 전문" />
+    <footer className="modal-footer">
+      <div className="spacer" />
+      <button className="button primary" onClick={copyGuide}><Copy />전체 복사</button>
+    </footer>
+  </Modal>;
 }
 
 export type CodeTab = 'html' | 'css' | 'svg' | 'mask';
@@ -43,6 +68,7 @@ export function CodeDialog({project, target, close, apply, save, notice}: {
   const isMask = initialTab === 'mask';
   const tabs: CodeTab[] = target.mode === 'template' ? ['html', 'css', 'svg'] : isMask ? ['mask'] : initialTab === 'svg' ? ['svg'] : ['html', 'css'];
   const [tab, setTab] = useState<CodeTab>(initialTab);
+  const [showGuide, setShowGuide] = useState(false);
   const [sources, setSources] = useState({
     html: existing?.html ?? (target.mode === 'add-html' ? defaultHtml : ''),
     css: existing?.css ?? (target.mode === 'add-html' ? defaultCss : ''),
@@ -103,7 +129,7 @@ export function CodeDialog({project, target, close, apply, save, notice}: {
   const preview = {...project, width, height, layers, transparent: true, backgroundImage: ''};
   const previewZoom = Math.min(1, 335 / width, 340 / height);
   const valid = !error && layers.length > 0;
-  return <Modal close={close} notice={notice} wide title={isMask ? 'SVG 마스크 / 클리핑' : target.mode === 'template' ? 'AI 템플릿 가져오기' : existing ? '코드 편집' : initialTab === 'svg' ? 'SVG 추가' : '사용자 HTML 추가'}
+  const editor = <Modal close={close} notice={notice} wide title={isMask ? 'SVG 마스크 / 클리핑' : target.mode === 'template' ? 'AI 템플릿 가져오기' : existing ? '코드 편집' : initialTab === 'svg' ? 'SVG 추가' : '사용자 HTML 추가'}
     subtitle={isMask ? '레이어에 적용할 SVG 모양을 붙여넣으세요.' : '코드를 붙여넣고 결과를 확인한 뒤 적용하세요.'}>
     <div className="code-layout">
       <div className="code-editor">
@@ -146,12 +172,14 @@ export function CodeDialog({project, target, close, apply, save, notice}: {
       </div>
     </div>
     <footer className="modal-footer">
+      {target.mode === 'template' && <button className="button subtle" onClick={() => setShowGuide(true)}><BookOpen />지침</button>}
       {existing && <button className="button subtle" onClick={() => {setSources({html: existing.html, css: existing.css, svg: existing.svg, mask: existing.mask}); setMaskMode(existing.maskMode); setFileError('');}}>변경 되돌리기</button>}
       {target.mode === 'template' && <button className="button subtle" disabled={!valid} onClick={() => save(name.trim() || '템플릿', layers)}><Save />템플릿으로 저장</button>}
       <div className="spacer" /><button className="button subtle" onClick={close}>취소</button>
       <button className="button primary" disabled={!valid} onClick={() => apply(layers, patch)}>{existing ? '변경 적용' : target.mode === 'template' ? '캔버스에 적용' : '레이어 추가'}</button>
     </footer>
   </Modal>;
+  return <>{editor}{showGuide && <TemplateGuideDialog close={() => setShowGuide(false)} />}</>;
 }
 
 export function ExportDialog({project, close}: {project: Project; close: () => void}) {

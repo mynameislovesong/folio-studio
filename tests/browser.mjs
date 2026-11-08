@@ -221,6 +221,20 @@ try {
   console.log('PASS SVG parsing, masking, 4× PNG, drag reorder, grouping and locking');
 
   await button('AI 템플릿 가져오기').click();
+  const templateDraft = page.getByRole('textbox', {name: 'HTML 코드'});
+  await templateDraft.fill('<p>작업 중인 템플릿</p>');
+  await button('지침').click();
+  const guide = page.getByRole('dialog', {name: '캐릭터 소개 HTML 명함 제작 공통 지침'});
+  const guideText = await guide.getByRole('textbox', {name: '제작 지침 전문'}).inputValue();
+  assert.equal(guideText.match(/^## \d+\./gm)?.length, 11);
+  assert.match(guideText, /시노하라 유우/);
+  await button('전체 복사').click();
+  await guide.getByText('지침 전체를 복사했습니다.', {exact: true}).waitFor();
+  const copiedGuide = await page.evaluate(() => navigator.clipboard.readText());
+  assert.equal(copiedGuide.replace(/\r\n/g, '\n'), guideText);
+  await page.keyboard.press('Escape');
+  await guide.waitFor({state: 'detached'});
+  assert.equal(await templateDraft.inputValue(), '<p>작업 중인 템플릿</p>');
   await page.getByRole('textbox', {name: 'HTML 코드'}).fill('<div class="a" class="b">HTML</div>');
   await page.getByText(/HTML 1행.*duplicate-attribute/).waitFor();
   const html = '<div class="layout"><h1 id="subject" data-editable="text">대상</h1><div id="paper" data-editable="background">기록</div><img id="photo" data-editable="image" src="https://example.invalid/blocked.png" onerror="window.pwned=true"><script>window.pwned=true</script></div>';
