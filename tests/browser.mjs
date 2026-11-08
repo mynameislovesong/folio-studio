@@ -69,15 +69,24 @@ try {
   assert.deepEqual([emptyPng.width, emptyPng.height, ...emptyPng.colors[0]], [1700, 800, 0, 0, 0, 255]);
   await button('보관함').click();
   await button('템플릿').click();
-  await page.getByRole('button', {name: /나이트폴 아카이브 기본 제공 예제/}).click();
-  assert.equal(await page.getByLabel('프로젝트 이름').inputValue(), '나이트폴 아카이브');
-  await page.locator('.board-plane img').last().waitFor();
+  await page.getByText('저장된 템플릿이 없습니다.', {exact: true}).waitFor();
   if (process.env.FOLIO_SCREENSHOT) await page.screenshot({path: process.env.FOLIO_SCREENSHOT});
-  const sample = await png(1, [[20, 20], [220, 370]]);
-  assert.deepEqual([sample.width, sample.height], [780, 980]);
-  assert.notDeepEqual(sample.colors[0], sample.colors[1], 'sample SVG must paint');
-  assert.equal(sample.colors[1][3], 255);
-  console.log('PASS sample artwork and PNG file');
+  const legacy = path.join(scratch, 'legacy-project.json');
+  await writeFile(legacy, JSON.stringify({
+    version: 1, name: '기존 프로젝트', width: 780, height: 980,
+    layers: [{kind: 'frame', name: '문서 장식선', locked: true, svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 780 980"><path d="M49 79H731M49 240H731M49 859H731M49 928H731M570 271V827"/><path d="M635 743v53m5-53v53m7-53v53"/></svg>'}],
+  }));
+  await page.getByLabel('JSON 프로젝트 파일 선택').setInputFiles(legacy);
+  await row('문서 장식선').waitFor();
+  await saved();
+  await page.reload();
+  await saved();
+  assert.equal(await button('문서 장식선 잠금 해제').isVisible(), true);
+  await button('문서 장식선 레이어 삭제').click();
+  await page.getByText('레이어가 없습니다', {exact: true}).waitFor();
+  await page.keyboard.press('Control+z');
+  await row('문서 장식선').waitFor();
+  console.log('PASS no built-in sample, legacy decoration deletion and undo');
 
   await button('보관함').click();
   await button('새 프로젝트').click();
@@ -221,6 +230,7 @@ try {
   await page.getByRole('alert').waitFor();
   await page.getByRole('textbox', {name: 'CSS 코드'}).fill('.layout { width: 96px; height: 96px; overflow: hidden; background: #1f74d0; color: #fff; }');
   await button('템플릿으로 저장').click();
+  await page.getByRole('dialog').getByText('저장되었습니다.', {exact: true}).waitFor();
   await button('캔버스에 적용').click();
   const template = page.frameLocator('.board-plane iframe');
   await template.getByText('대상', {exact: true}).waitFor();
@@ -394,8 +404,13 @@ try {
   await saved();
   assert.equal(await page.getByTestId('layer-row').count(), 2);
   await button('보관함').click();
-  await page.getByRole('button', {name: /나이트폴 아카이브 780/}).click();
-  assert.equal(await page.getByTestId('layer-row').count(), 12);
+  await page.getByRole('button', {name: /기존 프로젝트 780/}).click();
+  assert.equal(await page.getByTestId('layer-row').count(), 1);
+  await button('보관함').click();
+  await button('템플릿').click();
+  await button('현재 디자인 저장').click();
+  await page.getByRole('dialog').getByText('저장되었습니다.', {exact: true}).waitFor();
+  await page.getByRole('dialog').getByRole('button', {name: '닫기', exact: true}).last().click();
   console.log('PASS row and bulk deletion, input safety, locks, one-step undo, reload and project isolation');
 
   const second = await context.newPage();

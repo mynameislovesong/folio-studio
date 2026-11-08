@@ -8,9 +8,10 @@ import type {Layer, LayerPatch, Project} from './model';
 import {download} from './storage';
 import type {SavedProject, SavedTemplate} from './storage';
 import {exportPng} from './export';
-import {exampleProject} from './example';
 
-export function Modal({title, subtitle, children, close, wide = false}: {title: string; subtitle?: string; children: ReactNode; close: () => void; wide?: boolean}) {
+type DialogNotice = {message: string; error?: boolean};
+
+export function Modal({title, subtitle, children, close, notice, wide = false}: {title: string; subtitle?: string; children: ReactNode; close: () => void; notice?: DialogNotice; wide?: boolean}) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const dialog = ref.current;
@@ -20,6 +21,7 @@ export function Modal({title, subtitle, children, close, wide = false}: {title: 
   return <dialog className={wide ? 'modal wide' : 'modal'} ref={ref} aria-label={title} onCancel={event => {event.preventDefault(); close();}}>
     <header className="modal-heading"><div><h2>{title}</h2>{subtitle && <p>{subtitle}</p>}</div><button className="icon-button" aria-label="닫기" title="닫기" onClick={close}><X /></button></header>
     {children}
+    {notice && <p role={notice.error ? 'alert' : 'status'} className={'modal-notice' + (notice.error ? ' error-box' : '')}>{notice.message}</p>}
   </dialog>;
 }
 
@@ -28,12 +30,13 @@ export type CodeTarget = {mode: 'template' | 'add-html' | 'add-svg'} | {mode: 'e
 const demoMask = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="48" fill="#fff"/></svg>';
 const tabLabels: Record<CodeTab, string> = {html: 'HTML', css: 'CSS', svg: 'SVG', mask: 'SVG 마스크'};
 
-export function CodeDialog({project, target, close, apply, save}: {
+export function CodeDialog({project, target, close, apply, save, notice}: {
   project: Project;
   target: CodeTarget;
   close: () => void;
   apply: (layers: Layer[], patch: LayerPatch) => void;
   save: (name: string, layers: Layer[]) => void;
+  notice?: DialogNotice;
 }) {
   const existing = target.mode === 'edit' ? target.layer : undefined;
   const initialTab = target.mode === 'edit' ? target.tab : target.mode === 'add-svg' ? 'svg' : 'html';
@@ -100,7 +103,7 @@ export function CodeDialog({project, target, close, apply, save}: {
   const preview = {...project, width, height, layers, transparent: true, backgroundImage: ''};
   const previewZoom = Math.min(1, 335 / width, 340 / height);
   const valid = !error && layers.length > 0;
-  return <Modal close={close} wide title={isMask ? 'SVG 마스크 / 클리핑' : target.mode === 'template' ? 'AI 템플릿 가져오기' : existing ? '코드 편집' : initialTab === 'svg' ? 'SVG 추가' : '사용자 HTML 추가'}
+  return <Modal close={close} notice={notice} wide title={isMask ? 'SVG 마스크 / 클리핑' : target.mode === 'template' ? 'AI 템플릿 가져오기' : existing ? '코드 편집' : initialTab === 'svg' ? 'SVG 추가' : '사용자 HTML 추가'}
     subtitle={isMask ? '레이어에 적용할 SVG 모양을 붙여넣으세요.' : '코드를 붙여넣고 결과를 확인한 뒤 적용하세요.'}>
     <div className="code-layout">
       <div className="code-editor">
@@ -183,7 +186,7 @@ export function ExportDialog({project, close}: {project: Project; close: () => v
   </Modal>;
 }
 
-export function LibraryDialog({current, projects, templates, close, open, create, copy, remove, apply, removePreset, save, importFile, exportFile}: {
+export function LibraryDialog({current, projects, templates, close, open, create, copy, remove, apply, removePreset, save, importFile, exportFile, notice}: {
   current: string;
   projects: SavedProject[];
   templates: SavedTemplate[];
@@ -197,10 +200,11 @@ export function LibraryDialog({current, projects, templates, close, open, create
   save: () => void;
   importFile: () => void;
   exportFile: () => void;
+  notice?: DialogNotice;
 }) {
   const [tab, setTab] = useState<'projects' | 'templates'>('projects');
   const date = (value: number) => new Intl.DateTimeFormat('ko-KR', {dateStyle: 'medium', timeStyle: 'short'}).format(value);
-  return <Modal title="작업 보관함" subtitle="이 브라우저에 자동 저장된 프로젝트와 템플릿입니다." close={close}>
+  return <Modal title="작업 보관함" subtitle="이 브라우저에 자동 저장된 프로젝트와 템플릿입니다." close={close} notice={notice}>
     <div className="library">
       <div className="library-tools"><div className="segmented"><button className={tab === 'projects' ? 'chosen' : ''} onClick={() => setTab('projects')}>프로젝트</button>
         <button className={tab === 'templates' ? 'chosen' : ''} onClick={() => setTab('templates')}>템플릿</button></div>
@@ -211,17 +215,10 @@ export function LibraryDialog({current, projects, templates, close, open, create
           <button className="icon-button" aria-label={item.project.name + ' 복제'} title="프로젝트 복제" onClick={() => copy(item.project)}><Copy /></button>
           <button className="icon-button danger" aria-label={item.project.name + ' 삭제'} title="프로젝트 삭제" onClick={() => remove(item)}><Trash2 /></button>
         </div>) : <p className="empty-panel">저장된 프로젝트가 없습니다.</p>)}
-        {tab === 'templates' && <>
-          {templates.map(item => <div className="library-row" key={item.id}>
+        {tab === 'templates' && (templates.length ? templates.map(item => <div className="library-row" key={item.id}>
             <button className="library-entry" onClick={() => apply(item)}><CodeXml size={17} /><span><strong>{item.name}</strong><small>{item.project.width} × {item.project.height} · {date(item.updated)}</small></span></button>
             <button className="icon-button danger" aria-label={item.name + ' 템플릿 삭제'} title="템플릿 삭제" onClick={() => removePreset(item)}><Trash2 /></button>
-          </div>)}
-          <div className="library-row">
-            <button className="library-entry" onClick={() => open(exampleProject())}><CodeXml size={17} />
-              <span><strong>나이트폴 아카이브</strong><small>기본 제공 예제 · 새 프로젝트로 열기</small></span>
-            </button>
-          </div>
-        </>}
+          </div>) : <p className="empty-panel">저장된 템플릿이 없습니다.</p>)}
       </div>
     </div>
     <footer className="modal-footer"><button className="button subtle" onClick={importFile}><Upload />JSON 가져오기</button><button className="button subtle" onClick={exportFile}><Download />JSON 백업</button><div className="spacer" /><button className="button subtle" onClick={close}>닫기</button></footer>

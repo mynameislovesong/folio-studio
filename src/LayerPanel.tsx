@@ -1,6 +1,6 @@
 import {useState} from 'react';
 import {ArrowDown, ArrowDownToLine, ArrowUp, ArrowUpToLine, Circle, CodeXml, Copy, Eye, EyeOff, Frame, GripVertical, Group, Image as ImageIcon, Layers3, LockKeyhole, LockKeyholeOpen, Minus, Palette, Shapes, Square, Trash2, Type, Ungroup} from 'lucide-react';
-import {kinds, kindNames, layerUnit} from './model';
+import {isLegacyDecoration, kinds, kindNames, layerUnit} from './model';
 import type {Kind, Layer, LayerPatch, Project} from './model';
 
 export const kindIcons = {text: Type, image: ImageIcon, svg: Shapes, rect: Square, circle: Circle, line: Minus, background: Palette, html: CodeXml, frame: Frame};
@@ -69,6 +69,7 @@ export function LayerPanel({project, selection, select, add, patch, reorder, rem
           const Icon = kindIcons[layer.kind];
           const grouped = layer.group && layer.group !== project.layers[index - 1]?.group;
           const unit = layerUnit(project, layer);
+          const deleteDisabled = layer.locked && !isLegacyDecoration(layer);
           return <div key={layer.id}>
             {grouped && <button className="group-row" title="그룹 전체 선택" onClick={() => select(unit.filter(item => !item.locked).map(item => item.id))}>
               <Group size={14} />{project.groups[layer.group] ?? '그룹'} <small>{unit.length}</small>
@@ -93,8 +94,8 @@ export function LayerPanel({project, selection, select, add, patch, reorder, rem
               </button>
               <button className="row-icon" aria-label={layer.name + (layer.visible ? ' 숨기기' : ' 표시')} title={layer.visible ? '숨기기' : '표시'} onClick={() => patch([layer.id], {visible: !layer.visible})}>{layer.visible ? <Eye /> : <EyeOff />}</button>
               <button className="row-icon" aria-label={layer.name + (layer.locked ? ' 잠금 해제' : ' 잠그기')} title={layer.locked ? '잠금 해제' : '잠그기'} onClick={() => {patch([layer.id], {locked: !layer.locked}); if (!layer.locked) select(selection.filter(id => id !== layer.id));}}>{layer.locked ? <LockKeyhole /> : <LockKeyholeOpen />}</button>
-              <button className="row-icon row-delete" aria-label={layer.name + ' 레이어 삭제'} title={layer.locked ? '잠긴 레이어' : '레이어 삭제'}
-                disabled={layer.locked} onClick={() => removeLayer(layer.id)}><Trash2 /></button>
+              <button className="row-icon row-delete" aria-label={layer.name + ' 레이어 삭제'} title={deleteDisabled ? '잠긴 레이어' : '레이어 삭제'}
+                disabled={deleteDisabled} onClick={() => removeLayer(layer.id)}><Trash2 /></button>
             </div>
           </div>;
         })}

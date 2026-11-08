@@ -82,6 +82,12 @@ export interface Project {
 }
 export type LayerPatch = Partial<Omit<Layer, 'id' | 'kind'>>;
 
+export function isLegacyDecoration(layer: Layer) {
+  return layer.kind === 'frame' && layer.svg.includes('viewBox="0 0 780 980"')
+    && layer.svg.includes('M49 79H731M49 240H731M49 859H731M49 928H731M570 271V827')
+    && layer.svg.includes('M635 743v53m5-53v53m7-53v53');
+}
+
 const frameSvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 1000" preserveAspectRatio="none"><path d="M6 95V6H95M705 6H794V95M6 905V994H95M705 994H794V905" stroke="#d8e2df" fill="none" stroke-width="5"/></svg>';
 export const defaultHtml = '<div class="card"><p class="label">FIELD NOTES / 01</p><h1 id="title" data-editable="text">미확인 기록</h1><p id="description" data-editable="text">여기에 내용을 입력하세요.</p></div>';
 export const defaultCss = '.card { height: 100%; box-sizing: border-box; background: #dce6df; color: #172b2a; padding: 32px; font-family: Arial, sans-serif; }\n.label { font: bold 13px monospace; letter-spacing: .16em; }\nh1 { margin: 16px 0; font-size: 36px; }';

@@ -6,7 +6,7 @@ import {CodeDialog, ExportDialog, LibraryDialog, templateProject} from './Dialog
 import type {CodeTarget} from './Dialogs';
 import {Inspector} from './Inspector';
 import {LayerPanel} from './LayerPanel';
-import {addLayers, asDataUrl, duplicateLayers, groupLayers, kindNames, loadRaster, makeLayer, newProject, patchLayers, readProject, reorder, round, uid, ungroupLayers} from './model';
+import {addLayers, asDataUrl, duplicateLayers, groupLayers, isLegacyDecoration, kindNames, loadRaster, makeLayer, newProject, patchLayers, readProject, reorder, round, uid, ungroupLayers} from './model';
 import type {FontAsset, Kind, Layer, LayerPatch, Project} from './model';
 import {download, listProjects, listTemplates, removeProject, removeTemplate, saveProject, saveTemplate} from './storage';
 import type {SavedProject, SavedTemplate} from './storage';
@@ -214,11 +214,12 @@ export default function App() {
   }
 
   function chosen(value: Project) {return value.layers.filter(layer => selection.includes(layer.id) && !layer.locked);}
-  function deleteLayers(ids: string[]) {
+  function deleteLayers(ids: string[], allowLegacyDecoration = false) {
     const value = current.current?.project;
     if (!value) return;
     const requested = new Set(ids);
-    const removed = new Set(value.layers.filter(layer => requested.has(layer.id) && !layer.locked).map(layer => layer.id));
+    const removed = new Set(value.layers.filter(layer =>
+      requested.has(layer.id) && (!layer.locked || (allowLegacyDecoration && isLegacyDecoration(layer)))).map(layer => layer.id));
     if (!removed.size) return;
     commit({...value, layers: value.layers.filter(layer => !removed.has(layer.id))});
     setSelection(previous => previous.filter(id => !removed.has(id)));
@@ -318,7 +319,7 @@ export default function App() {
 
   function savePreset(name: string, value: Project) {
     const preset = {id: uid(), name, updated: Date.now(), project: value};
-    saveTemplate(preset).then(() => {setTemplates(items => [preset, ...items]); tell('템플릿을 저장했습니다.');}).catch(fail);
+    saveTemplate(preset).then(() => {setTemplates(items => [preset, ...items]); tell('저장되었습니다.');}).catch(fail);
   }
   async function deleteSaved(item: SavedProject) {
     if (!window.confirm('“' + item.project.name + '” 프로젝트를 삭제할까요?')) return;
@@ -392,7 +393,7 @@ export default function App() {
     <nav className="mobile-tabs" aria-label="작업 공간">{([['left', '요소 / 레이어'], ['canvas', '캔버스'], ['right', '속성']] as const).map(([value, label]) => <button key={value} className={mobile === value ? 'chosen' : ''} onClick={() => setMobile(value)}>{label}</button>)}</nav>
     <main className={'workspace show-' + mobile + (!left ? ' left-closed' : '') + (!right ? ' right-closed' : '')}>
       <aside className="left-panel" aria-label="요소 및 레이어"><LayerPanel project={project} selection={selection} select={selectLayers} add={add}
-        removeLayer={id => deleteLayers([id])} removeAllLayers={deleteAllLayers}
+        removeLayer={id => deleteLayers([id], true)} removeAllLayers={deleteAllLayers}
         patch={(ids, patch) => commit(value => patchLayers(value, ids, patch))} reorder={order} /></aside>
       <Canvas key={project.id} project={project} selection={selection} select={selectLayers} commit={commit} onFiles={addFiles}
         canvasResizeMode={canvasResizeMode} setCanvasResizeMode={selectCanvas}
@@ -406,14 +407,14 @@ export default function App() {
     <input ref={imageInput} type="file" hidden aria-label="이미지 파일 선택" onChange={event => {const files = Array.from(event.currentTarget.files ?? []); event.currentTarget.value = ''; void pickedImage(files);}} />
     <input ref={fontInput} type="file" hidden accept=".woff,.woff2,.ttf,.otf" aria-label="폰트 파일 선택" onChange={event => {const file = event.currentTarget.files?.[0]; event.currentTarget.value = ''; if (file) void pickedFont(file);}} />
     <input ref={jsonInput} type="file" hidden accept=".json,application/json" aria-label="JSON 프로젝트 파일 선택" onChange={event => {const file = event.currentTarget.files?.[0]; event.currentTarget.value = ''; if (file) void openJson(file);}} />
-    {dialog === 'library' && <LibraryDialog current={project.id} projects={projects} templates={templates} close={close}
+    {dialog === 'library' && <LibraryDialog current={project.id} projects={projects} templates={templates} close={close} notice={notice}
       open={value => value.id === project.id ? close() : reset(value)} create={() => reset(newProject())}
       copy={value => reset({...value, id: uid(), name: value.name + ' 복제'})} remove={deleteSaved}
       apply={item => reset({...item.project, id: uid(), name: item.name})} removePreset={deletePreset}
       save={() => savePreset(project.name, project)} importFile={() => jsonInput.current?.click()}
       exportFile={() => download(new Blob([JSON.stringify(project, null, 2)], {type: 'application/json'}), project.name + '.json')} />}
     {dialog === 'export' && <ExportDialog project={project} close={close} />}
-    {dialog && typeof dialog !== 'string' && <CodeDialog project={project} target={dialog} close={close}
+    {dialog && typeof dialog !== 'string' && <CodeDialog project={project} target={dialog} close={close} notice={notice}
       apply={(layers, patch) => {
         if (dialog.mode === 'edit') commit(value => patchLayers(value, [dialog.layer.id], patch));
         else addWithSelection(layers.map(layer => ({...layer, id: uid(),
@@ -421,7 +422,7 @@ export default function App() {
         close();
         tell(dialog.mode === 'edit' ? '코드 변경을 적용했습니다.' : dialog.mode === 'template' ? '템플릿을 적용했습니다.' : '레이어를 추가했습니다.');
       }} save={(name, layers) => savePreset(name, templateProject(project, name, layers.map(layer => ({...layer, id: uid()}))))} />}
-    {notice && <div role="status" className={'toast' + (notice.error ? ' toast-error' : '')}>{notice.error ? <CloudOff /> : <Check />}{notice.message}</div>}
+    {notice && (!dialog || dialog === 'export') && <div role="status" className={'toast' + (notice.error ? ' toast-error' : '')}>{notice.error ? <CloudOff /> : <Check />}{notice.message}</div>}
   </div>;
 }
 
