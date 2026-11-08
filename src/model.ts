@@ -59,12 +59,16 @@ export interface Layer {
   fields: Record<string, string>;
 }
 export interface FontAsset {name: string; family: string; src: string}
+export interface CanvasResizeSettings {min: number; max: number; ratioLocked: boolean}
+export const canvasSizeLimits = {min: 16, max: 4096, ratioLocked: false};
+
 export interface Project {
   version: 1;
   id: string;
   name: string;
   width: number;
   height: number;
+  canvasResize?: CanvasResizeSettings;
   background: string;
   backgroundImage: string;
   transparent: boolean;
@@ -217,8 +221,17 @@ export function readProject(value: unknown): Project {
     return layer;
   });
   project.groups = Object.fromEntries(groupMap);
-  project.width = Math.round(num(data.width, 1080, 16, 4096));
-  project.height = Math.round(num(data.height, 1080, 16, 4096));
+  const {min, max} = canvasSizeLimits;
+  project.width = Math.round(num(data.width, 1080, min, max));
+  project.height = Math.round(num(data.height, 1080, min, max));
+  if (data.canvasResize) {
+    const settings = record(data.canvasResize);
+    project.canvasResize = {
+      min: Math.round(num(settings.min, min, min, Math.min(project.width, project.height))),
+      max: Math.round(num(settings.max, max, Math.max(project.width, project.height), max)),
+      ratioLocked: settings.ratioLocked === true,
+    };
+  }
   project.background = hex(data.background, project.background);
   project.backgroundImage = raster(data.backgroundImage);
   for (const key of ['transparent', 'grid', 'guides', 'snap'] as const) if (typeof data[key] === 'boolean') project[key] = data[key];

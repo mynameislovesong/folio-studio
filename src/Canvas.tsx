@@ -1,8 +1,10 @@
 import {useEffect, useRef, useState} from 'react';
 import type {PointerEvent as ReactPointer, DragEvent} from 'react';
-import {Expand, Grid2X2, Magnet, Minus, Plus, Ruler} from 'lucide-react';
+import {Expand, Grid2X2, Magnet, Minus, Plus, Ruler, ScanLine} from 'lucide-react';
 import {Artboard, position, textStyle} from './Artboard';
-import {clamp, layerUnit, patchLayers, round} from './model';
+import {canvasHandles, dragCanvasSize} from './canvasSize';
+import type {CanvasHandle, CanvasSize} from './canvasSize';
+import {canvasSizeLimits, clamp, layerUnit, patchLayers, round} from './model';
 import type {Layer, Project} from './model';
 
 type Point = {x: number; y: number};
@@ -10,7 +12,9 @@ type Box = {x: number; y: number; w: number; h: number};
 type Mode = 'move' | 'rotate' | 'nw' | 'ne' | 'sw' | 'se';
 type Guide = Partial<Point>;
 type Action = {project: Project; ids: string[]; mode: Mode; start: Point; box: Box; angle: number; draft: Project};
+type CanvasDrag = {size: CanvasSize; zoom: number; start: Point; pointerId: number; handle: CanvasHandle};
 const corners = ['nw', 'ne', 'sw', 'se'] as const;
+const handlePosition = {'-1': 'min(0px, calc(50% - 24px))', '0': '50%', '1': 'max(100%, calc(50% + 24px))'};
 const rad = (degrees: number) => degrees * Math.PI / 180;
 const spin = ({x, y}: Point, angle: number): Point => ({x: x * Math.cos(angle) - y * Math.sin(angle), y: x * Math.sin(angle) + y * Math.cos(angle)});
 
@@ -106,22 +110,29 @@ interface Props {
   select: (ids: string[]) => void;
   commit: (project: Project) => void;
   onFiles: (files: File[], point?: Point) => void;
+  canvasResizeMode: boolean;
+  setCanvasResizeMode: (active: boolean) => void;
+  resizeCanvas: (size: CanvasSize) => void;
 }
 
-export function Canvas({project, selection, select, commit, onFiles}: Props) {
+export function Canvas({project, selection, select, commit, onFiles, canvasResizeMode, setCanvasResizeMode, resizeCanvas}: Props) {
   const view = useRef<HTMLDivElement>(null);
   const surface = useRef<HTMLDivElement>(null);
   const board = useRef<HTMLDivElement>(null);
   const action = useRef<Action | null>(null);
+  const canvasDrag = useRef<CanvasDrag | null>(null);
+  const [canvasPreview, setCanvasPreview] = useState<ReturnType<typeof dragCanvasSize>>();
   const [viewSize, setViewSize] = useState({w: 840, h: 700});
+  const [fitSize, setFitSize] = useState<CanvasSize>(() => ({width: project.width, height: project.height}));
   const [manualZoom, setManualZoom] = useState<number>();
   const [draft, setDraft] = useState<Project>();
   const [guides, setGuides] = useState<Guide>({});
   const [editing, setEditing] = useState<string>();
   const [dragOver, setDragOver] = useState(false);
-  const display = draft ?? project;
-  const fit = Math.max(.02, Math.min(1.5, (viewSize.w - 108) / project.width, (viewSize.h - 92) / project.height));
-  const zoom = manualZoom ?? fit;
+  const preview = canvasResizeMode ? canvasPreview : undefined;
+  const display = preview ? {...project, ...preview.size} : draft ?? project;
+  const fit = Math.max(.02, Math.min(1.5, (viewSize.w - 116) / fitSize.width, (viewSize.h - 100) / fitSize.height));
+  const zoom = canvasDrag.current?.zoom ?? manualZoom ?? fit;
   const selected = display.layers.filter(layer => selection.includes(layer.id) && layer.visible && !layer.locked);
   const one = selected.length === 1 ? selected[0] : null;
   const box = selected.length > 0 ? bounds(selected) : null;
@@ -130,10 +141,48 @@ export function Canvas({project, selection, select, commit, onFiles}: Props) {
   useEffect(() => {
     const element = view.current;
     if (!element) return;
-    const observer = new ResizeObserver(([entry]) => setViewSize({w: entry.contentRect.width, h: entry.contentRect.height}));
+    const observer = new ResizeObserver(() => {
+      const rect = element.getBoundingClientRect();
+      if (rect.width && rect.height) setViewSize({w: rect.width, h: rect.height});
+    });
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
+
+  useEffect(() => {
+    canvasDrag.current = null;
+    setCanvasPreview(undefined);
+  }, [canvasResizeMode, project.width, project.height]);
+
+  function beginCanvasDrag(event: ReactPointer<HTMLButtonElement>, handle: CanvasHandle) {
+    if (event.button !== 0 || canvasDrag.current) return;
+    event.stopPropagation();
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    canvasDrag.current = {size: {width: project.width, height: project.height}, zoom, handle,
+      start: {x: event.clientX, y: event.clientY}, pointerId: event.pointerId};
+    setCanvasPreview({size: canvasDrag.current.size, x: 0, y: 0});
+  }
+
+  function updateCanvasDrag(event: ReactPointer<HTMLButtonElement>, apply = false) {
+    const drag = canvasDrag.current;
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    const dx = (event.clientX - drag.start.x) / drag.zoom;
+    const dy = (event.clientY - drag.start.y) / drag.zoom;
+    const next = dragCanvasSize(drag.size, drag.handle, dx, dy, project.canvasResize ?? canvasSizeLimits, event.shiftKey, event.altKey);
+    if (!apply) {
+      setCanvasPreview(next);
+      return;
+    }
+    cancelCanvasDrag(event);
+    if (next.size.width !== drag.size.width || next.size.height !== drag.size.height) resizeCanvas(next.size);
+  }
+
+  function cancelCanvasDrag(event: ReactPointer<HTMLButtonElement>) {
+    if (event.pointerId !== canvasDrag.current?.pointerId) return;
+    canvasDrag.current = null;
+    setCanvasPreview(undefined);
+  }
 
   function point(clientX: number, clientY: number): Point {
     const rect = board.current!.getBoundingClientRect();
@@ -198,47 +247,62 @@ export function Canvas({project, selection, select, commit, onFiles}: Props) {
       onDragLeave={event => {if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragOver(false);}}
       onDrop={drop}>
       <div className="workarea" onPointerDown={event => {if (event.button === 0 && !editing) select([]);}}>
-        <div className="board-frame" style={{width: project.width * zoom, height: project.height * zoom}}>
-          <div className="board-label"><span><i />아트보드 01</span><span>{project.width} × {project.height}</span></div>
-          <div ref={board} className="board-plane" style={{width: project.width, height: project.height, transform: 'scale(' + zoom + ')'}}>
-            <Artboard project={display} omit={editing} />
-            <div ref={surface} className="interaction" onPointerMove={move} onPointerUp={() => end(true)} onPointerCancel={() => end(false)}
-              onPointerLeave={event => {if (!event.currentTarget.hasPointerCapture(event.pointerId)) end(false);}}>
-              {display.grid && <div className="design-grid" />}
-              {display.layers.toReversed().filter(layer => layer.visible && !layer.locked && layer.id !== editing).map(layer =>
-                <div key={layer.id} className="hit-layer" data-layer={layer.id} data-name={layer.name} style={position(layer)}
-                  onPointerDown={event => start(event, layer)}
-                  onDoubleClick={event => {if (layer.kind === 'text') {event.stopPropagation(); select([layer.id]); setEditing(layer.id);}}} />)}
-              {display.guides && guides.x !== undefined && <div className="guide guide-x" style={{left: guides.x, width: 1 / zoom}} />}
-              {display.guides && guides.y !== undefined && <div className="guide guide-y" style={{top: guides.y, height: 1 / zoom}} />}
-              {box && !editing && <div className="selection-box" style={{
-                ...(one ? position(one) : {left: box.x, top: box.y, width: box.w, height: box.h}),
-                borderWidth: 1 / zoom, '--handle': 9 / zoom + 'px', '--arm': 25 / zoom + 'px',
-              } as React.CSSProperties}>
-                {corners.map(corner => <button key={corner} aria-label={'크기 조절 ' + corner} className={'handle ' + corner}
-                  onPointerDown={event => start(event, undefined, corner)} />)}
-                <button aria-label="회전 핸들" className="handle rotation" onPointerDown={event => start(event, undefined, 'rotate')} />
-              </div>}
-              {text && <div className="direct-text" style={position(text)} onPointerDown={event => event.stopPropagation()}>
-                <textarea autoFocus aria-label="캔버스 텍스트 편집" defaultValue={text.text}
-                  style={{...textStyle(text), outlineWidth: 2 / zoom}}
-                  onBlur={event => {
-                    if (event.currentTarget.dataset.cancel !== 'true' && event.currentTarget.value !== text.text) commit(patchLayers(project, [text.id], {text: event.currentTarget.value}));
-                    setEditing(undefined);
-                  }}
-                  onKeyDown={event => {
-                    if (event.key === 'Escape') {event.currentTarget.dataset.cancel = 'true'; event.currentTarget.blur();}
-                    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) event.currentTarget.blur();
-                  }} />
-              </div>}
+        <div style={{width: project.width * zoom, height: project.height * zoom}}>
+          <div className={'board-frame' + (canvasResizeMode ? ' canvas-resizing' : '')} style={{
+            width: display.width * zoom, height: display.height * zoom, left: (preview?.x ?? 0) * zoom, top: (preview?.y ?? 0) * zoom,
+          }}>
+            <div className="board-label">
+              <button aria-label="아트보드 선택" aria-pressed={canvasResizeMode} onClick={() => setCanvasResizeMode(!canvasResizeMode)}><i />아트보드 01</button>
+              <span>{display.width} × {display.height}</span>
             </div>
+            <div ref={board} className="board-plane" style={{width: display.width, height: display.height, transform: 'scale(' + zoom + ')'}}>
+              <Artboard project={display} omit={editing} />
+              <div ref={surface} className="interaction" onPointerMove={move} onPointerUp={() => end(true)} onPointerCancel={() => end(false)}
+                onPointerLeave={event => {if (!event.currentTarget.hasPointerCapture(event.pointerId)) end(false);}}>
+                {display.grid && <div className="design-grid" />}
+                {!canvasResizeMode && <div className="layer-hit-area">{display.layers.toReversed().filter(layer => layer.visible && !layer.locked && layer.id !== editing).map(layer =>
+                  <div key={layer.id} className="hit-layer" data-layer={layer.id} data-name={layer.name} style={position(layer)}
+                    onPointerDown={event => start(event, layer)}
+                    onDoubleClick={event => {if (layer.kind === 'text') {event.stopPropagation(); select([layer.id]); setEditing(layer.id);}}} />)}</div>}
+                {display.guides && guides.x !== undefined && <div className="guide guide-x" style={{left: guides.x, width: 1 / zoom}} />}
+                {display.guides && guides.y !== undefined && <div className="guide guide-y" style={{top: guides.y, height: 1 / zoom}} />}
+                {box && !editing && !canvasResizeMode && <div className="selection-box" style={{
+                  ...(one ? position(one) : {left: box.x, top: box.y, width: box.w, height: box.h}),
+                  borderWidth: 1 / zoom, '--handle': 9 / zoom + 'px', '--arm': 25 / zoom + 'px',
+                } as React.CSSProperties}>
+                  {corners.map(corner => <button key={corner} aria-label={'크기 조절 ' + corner} className={'handle ' + corner}
+                    onPointerDown={event => start(event, undefined, corner)} />)}
+                  <button aria-label="회전 핸들" className="handle rotation" onPointerDown={event => start(event, undefined, 'rotate')} />
+                </div>}
+                {text && <div className="direct-text" style={position(text)} onPointerDown={event => event.stopPropagation()}>
+                  <textarea autoFocus aria-label="캔버스 텍스트 편집" defaultValue={text.text}
+                    style={{...textStyle(text), outlineWidth: 2 / zoom}}
+                    onBlur={event => {
+                      if (event.currentTarget.dataset.cancel !== 'true' && event.currentTarget.value !== text.text) commit(patchLayers(project, [text.id], {text: event.currentTarget.value}));
+                      setEditing(undefined);
+                    }}
+                    onKeyDown={event => {
+                      if (event.key === 'Escape') {event.currentTarget.dataset.cancel = 'true'; event.currentTarget.blur();}
+                      if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) event.currentTarget.blur();
+                    }} />
+                </div>}
+              </div>
+            </div>
+            {canvasResizeMode && canvasHandles.map(handle => <button type="button" key={handle.name}
+              aria-label={'캔버스 ' + handle.name + ' 크기 조절'} className={'canvas-handle ' + handle.cursor}
+              style={{left: handlePosition[handle.x], top: handlePosition[handle.y]}}
+              onPointerDown={event => beginCanvasDrag(event, handle)} onPointerMove={event => updateCanvasDrag(event)}
+              onPointerUp={event => updateCanvasDrag(event, true)} onPointerCancel={cancelCanvasDrag} onLostPointerCapture={cancelCanvasDrag} />)}
           </div>
         </div>
       </div>
       {dragOver && <div className="drop-veil">여기에 이미지 또는 SVG 놓기</div>}
     </div>
+    {preview && <output className="canvas-size-preview" aria-label="드래그 중 캔버스 크기">{display.width} × {display.height} px</output>}
     <div className="canvas-status">
       <div className="status-tools">
+        <button className={'icon-button canvas-mode-button' + (canvasResizeMode ? ' active' : '')} title="캔버스 크기 조절" aria-label="캔버스 크기 조절"
+          aria-pressed={canvasResizeMode} onClick={() => setCanvasResizeMode(!canvasResizeMode)}><ScanLine /></button>
         <button className={'icon-button' + (project.grid ? ' active' : '')} title="격자" aria-label="격자" aria-pressed={project.grid} onClick={() => commit({...project, grid: !project.grid})}><Grid2X2 /></button>
         <button className={'icon-button' + (project.guides ? ' active' : '')} title="정렬 가이드" aria-label="정렬 가이드" aria-pressed={project.guides} onClick={() => commit({...project, guides: !project.guides})}><Ruler /></button>
         <button className={'icon-button' + (project.snap ? ' active' : '')} title="스냅" aria-label="스냅" aria-pressed={project.snap} onClick={() => commit({...project, snap: !project.snap})}><Magnet /></button>
@@ -248,7 +312,10 @@ export function Canvas({project, selection, select, commit, onFiles}: Props) {
         <button className="zoom-readout" title="실제 크기" onClick={() => setManualZoom(1)}>{Math.round(zoom * 100)}%</button>
         <button className="icon-button" title="확대" aria-label="확대" onClick={() => stepZoom(1.2)}><Plus /></button>
         <span className="tool-separator" />
-        <button className="icon-button" title="화면에 맞춤" aria-label="화면에 맞춤" onClick={() => setManualZoom(undefined)}><Expand /></button>
+        <button className="icon-button" title="화면에 맞춤" aria-label="화면에 맞춤" onClick={() => {
+          setFitSize({width: project.width, height: project.height});
+          setManualZoom(undefined);
+        }}><Expand /></button>
       </div>
     </div>
   </section>;

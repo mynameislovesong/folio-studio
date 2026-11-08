@@ -25,6 +25,7 @@ export default function App() {
   const [history, setHistory] = useState<History>();
   const current = useRef<History | undefined>(undefined);
   const [selection, setSelection] = useState<string[]>([]);
+  const [canvasResizeMode, setCanvasResizeMode] = useState(false);
   const [projects, setProjects] = useState<SavedProject[]>([]);
   const [templates, setTemplates] = useState<SavedTemplate[]>([]);
   const [saveState, setSaveState] = useState<'saving' | 'saved' | 'error'>('saving');
@@ -47,7 +48,16 @@ export default function App() {
   function reset(next: Project, close = true) {
     setSnapshot({past: [], project: next, future: []});
     setSelection([]);
+    setCanvasResizeMode(false);
     if (close) setDialog(undefined);
+  }
+  function selectLayers(ids: string[]) {
+    setSelection(ids);
+    if (ids.length) setCanvasResizeMode(false);
+  }
+  function selectCanvas(active: boolean) {
+    setCanvasResizeMode(active);
+    if (active) setSelection([]);
   }
   function commit(update: Project | ((value: Project) => Project), key?: string) {
     const snapshot = current.current;
@@ -121,7 +131,7 @@ export default function App() {
       }
       return {...result, fonts: [...fontMap.values()]};
     });
-    setSelection(layers.map(layer => layer.id));
+    selectLayers(layers.map(layer => layer.id));
     setRight(true);
   }
   async function addFiles(files: File[], point?: {x: number; y: number}) {
@@ -244,10 +254,10 @@ export default function App() {
       if (modifier && pressed === 'y') {event.preventDefault(); redo();}
       if (modifier && pressed === 'd' && selection.length) {event.preventDefault(); actions.duplicate();}
       if (modifier && pressed === 'g' && selection.length) {event.preventDefault(); if (event.shiftKey) actions.ungroup(); else actions.group();}
-      if (modifier && pressed === 'a' && project) {event.preventDefault(); setSelection(project.layers.filter(layer => layer.visible && !layer.locked).map(layer => layer.id));}
+      if (modifier && pressed === 'a' && project) {event.preventDefault(); selectLayers(project.layers.filter(layer => layer.visible && !layer.locked).map(layer => layer.id));}
       if (modifier && pressed === 's' && project) {event.preventDefault(); saveProject(project).then(() => tell('프로젝트를 저장했습니다.')).catch(fail);}
       if (pressed === 'delete' && selection.length) {event.preventDefault(); actions.remove();}
-      if (pressed === 'escape') setSelection([]);
+      if (pressed === 'escape') {setSelection([]); setCanvasResizeMode(false);}
       if (selection.length && ['arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(pressed) && !modifier) {
         event.preventDefault();
         const amount = event.shiftKey ? 10 : 1;
@@ -353,9 +363,10 @@ export default function App() {
         <button className="icon-button" title="실행 취소 (Ctrl+Z)" aria-label="실행 취소" disabled={!history.past.length} onClick={undo}><Undo2 /></button>
         <button className="icon-button" title="다시 실행 (Ctrl+Shift+Z)" aria-label="다시 실행" disabled={!history.future.length} onClick={redo}><Redo2 /></button>
       </div>
-      <div className="toolbar-mode"><span className="workspace-dot" />디자인 모드</div>
+      <div className="toolbar-mode"><span className="workspace-dot" />{canvasResizeMode ? '캔버스 크기 조절' : '디자인 모드'}</div>
       <div className="toolbar-right">
-        <button className="button quiet canvas-settings" title="캔버스 설정" onClick={() => {setSelection([]); setRight(true); setMobile('right');}}><ScanLine /><span>캔버스</span></button>
+        <button className="button quiet canvas-settings" title="캔버스 설정 및 크기 조절" aria-pressed={canvasResizeMode}
+          onClick={() => {selectCanvas(!canvasResizeMode); setRight(true); setMobile('canvas');}}><ScanLine /><span>캔버스</span></button>
         <button className="button quiet" title="코드 모드" onClick={() => codeLayer?.kind === 'html' ? openCode(codeLayer) : codeLayer?.kind === 'svg' || codeLayer?.kind === 'frame' ? openCode(codeLayer, 'svg') : setDialog({mode: 'add-html'})}><CodeXml /><span>코드</span></button>
         <button className="button quiet import-button" onClick={() => setDialog({mode: 'template'})}><LayoutTemplate /><span>AI 템플릿 가져오기</span></button>
         <span className="tool-separator desktop-panel" />
@@ -364,9 +375,11 @@ export default function App() {
     </div>
     <nav className="mobile-tabs" aria-label="작업 공간">{([['left', '요소 / 레이어'], ['canvas', '캔버스'], ['right', '속성']] as const).map(([value, label]) => <button key={value} className={mobile === value ? 'chosen' : ''} onClick={() => setMobile(value)}>{label}</button>)}</nav>
     <main className={'workspace show-' + mobile + (!left ? ' left-closed' : '') + (!right ? ' right-closed' : '')}>
-      <aside className="left-panel" aria-label="요소 및 레이어"><LayerPanel project={project} selection={selection} select={setSelection} add={add}
+      <aside className="left-panel" aria-label="요소 및 레이어"><LayerPanel project={project} selection={selection} select={selectLayers} add={add}
         patch={(ids, patch) => commit(value => patchLayers(value, ids, patch))} reorder={order} /></aside>
-      <Canvas key={project.id} project={project} selection={selection} select={setSelection} commit={commit} onFiles={addFiles} />
+      <Canvas key={project.id} project={project} selection={selection} select={selectLayers} commit={commit} onFiles={addFiles}
+        canvasResizeMode={canvasResizeMode} setCanvasResizeMode={selectCanvas}
+        resizeCanvas={size => commit(value => ({...value, ...size}))} />
       <aside className="right-panel" aria-label="속성 패널"><Inspector key={selection.join(',') + project.id} project={project} selection={selection}
         change={(patch, key) => commit(value => ({...value, ...patch}), key)}
         edit={(patch, key) => commit(value => patchLayers(value, chosen(value).map(layer => layer.id), patch), key && selection.join(',') + ':' + key)}

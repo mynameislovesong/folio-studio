@@ -2,7 +2,8 @@ import {useState} from 'react';
 import type {ReactNode} from 'react';
 import {BoxSelect, CodeXml, ImagePlus, Layers3, ScanLine, X} from 'lucide-react';
 import {compileHtml} from './code';
-import {blendModes, clamp, fonts, kindNames, round} from './model';
+import {changeCanvasSide, presetCanvasSize} from './canvasSize';
+import {blendModes, canvasSizeLimits, clamp, fonts, kindNames, round} from './model';
 import type {Layer, LayerPatch, Project} from './model';
 import {kindIcons, LayerCommands} from './LayerPanel';
 import type {LayerActions} from './LayerPanel';
@@ -52,6 +53,7 @@ interface Props {
 }
 
 export function Inspector({project, selection, change, edit, actions, openCode, chooseImage, chooseFont}: Props) {
+  const limits = project.canvasResize ?? canvasSizeLimits;
   const selected = project.layers.filter(layer => selection.includes(layer.id) && !layer.locked);
   const one = selected.length === 1 ? selected[0] : null;
   const group = selected.some(layer => layer.group);
@@ -62,8 +64,24 @@ export function Inspector({project, selection, change, edit, actions, openCode, 
   if (!selected.length) return <div className="inspector">
     <div className="inspector-heading"><span className="heading-icon"><ScanLine size={19} /></span><div><span className="panel-hint">ARTBOARD</span><h2>캔버스 설정</h2></div></div>
     <Section title="크기 및 비율">
-      <div className="fields-pair"><NumberField label="너비" min={16} max={4096} value={project.width} set={width => change({width: Math.round(width)})} /><NumberField label="높이" min={16} max={4096} value={project.height} set={height => change({height: Math.round(height)})} /></div>
-      <div className="ratio-grid">{[['16:9', 1920, 1080], ['4:3', 1200, 900], ['1:1', 1080, 1080], ['3:4', 900, 1200]].map(([label, w, h]) => <button key={label} className="button subtle" onClick={() => change({width: Number(w), height: Number(h)})}>{label}</button>)}</div>
+      <div className="fields-pair">
+        <NumberField label="너비" min={limits.min} max={limits.max} value={project.width} set={value => change(changeCanvasSide(project, 'width', value, limits))} />
+        <NumberField label="높이" min={limits.min} max={limits.max} value={project.height} set={value => change(changeCanvasSide(project, 'height', value, limits))} />
+      </div>
+      <Toggle label="캔버스 비율 잠금" value={limits.ratioLocked} set={ratioLocked => change({canvasResize: {...limits, ratioLocked}})} />
+      <div className="ratio-grid">{([['16:9', 1920, 1080], ['4:3', 1200, 900], ['1:1', 1080, 1080], ['3:4', 900, 1200]] as const).map(([label, width, height]) => {
+        const size = presetCanvasSize({width, height}, limits);
+        return <button key={label} className="button subtle" disabled={!size} onClick={() => size && change(size)}>{label}</button>;
+      })}</div>
+    </Section>
+    <Section title="캔버스 크기 제한">
+      <div className="fields-pair">
+        <NumberField label="최소 변" min={canvasSizeLimits.min} max={Math.min(project.width, project.height)} value={limits.min}
+          set={value => change({canvasResize: {...limits, min: Math.round(value)}})} />
+        <NumberField label="최대 변" min={Math.max(project.width, project.height)} max={canvasSizeLimits.max} value={limits.max}
+          set={value => change({canvasResize: {...limits, max: Math.round(value)}})} />
+      </div>
+      <p className="muted">너비와 높이에 같은 픽셀 한도를 적용합니다. 한도를 정할 때 현재 크기를 포함해야 합니다.</p>
     </Section>
     <Section title="배경">
       <Toggle label="투명 배경" value={project.transparent} set={transparent => change({transparent})} />
