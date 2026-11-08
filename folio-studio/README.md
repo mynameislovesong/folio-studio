@@ -1,0 +1,89 @@
+# Folio Studio
+
+브라우저에서 이미지, 텍스트, SVG, 사용자 HTML을 합성하고 PNG를 만드는 자유형 디자인 에디터입니다. React, TypeScript, Vite로 구성했습니다. 첫 실행에서는 편집 가능한 캐릭터 문서 예제 **나이트폴 아카이브**를 엽니다.
+
+## 설치와 실행
+
+Node.js 22.12 이상을 사용합니다.
+
+```sh
+npm ci
+npm run dev
+```
+
+터미널에 표시되는 로컬 주소(기본 `http://localhost:5173`)를 여세요. 개발 서버는 정적 앱을 제공하며 프로젝트와 이미지 저장은 브라우저에서 처리합니다.
+
+```sh
+npm run build
+npm run preview
+```
+
+`dist/`는 정적 호스팅에 사용할 수 있습니다. 같은 브라우저라도 주소 또는 포트가 다르면 IndexedDB 저장소가 분리됩니다. 작업을 옮기려면 **보관함 → JSON 백업**을 사용하세요.
+
+## 작업 흐름
+
+1. **보관함**에서 새 프로젝트를 만들거나 예제의 레이어를 편집합니다. 오른쪽 **캔버스** 설정에서 크기, 종횡비, 배경, 격자와 출력 배율을 바꿀 수 있습니다.
+2. 왼쪽에서 텍스트, 이미지, SVG, 도형, 배경, HTML, 프레임을 추가합니다. PNG·JPEG·WebP 파일을 캔버스에 놓거나 이미지 클립보드를 붙여넣을 수 있습니다. SVG는 파일로 놓거나 코드로 추가합니다.
+3. 캔버스에서 요소를 끌고, 모서리 핸들로 크기를 조절하고, 위쪽 핸들로 회전합니다. Shift를 누르면 비율을 유지하거나 회전을 15° 단위로 맞춥니다. 텍스트는 더블클릭해서 수정합니다.
+4. 레이어 목록을 끌어 순서를 바꿉니다. 목록 맨 위 레이어가 앞에 표시됩니다. 속성 패널에서 순서 이동, 복제, 그룹화, 투명도, 블렌드 모드, 필터와 마스크를 설정합니다. 잠긴 레이어는 눈/자물쇠 버튼으로 표시 상태와 잠금을 관리할 수 있습니다.
+5. **PNG 내보내기**에서 1×, 2×, 4×와 투명 배경을 고릅니다. 표시되는 미리보기는 다운로드할 PNG입니다. **보관함**에는 최근 프로젝트, 저장한 템플릿, JSON 가져오기·백업이 있습니다.
+
+이미지 자르기는 레이어 크기, 채우기/전체 표시, 원본 확대, 가로·세로 위치로 설정합니다. 필터, 반전, 자르기는 원본 파일을 유지합니다. SVG 마스크는 알파·밝기와 클리핑 윤곽을 지원합니다. 클리핑은 일반 SVG 실루엣 또는 SVG 안의 첫 `<clipPath>`를 사용합니다. 텍스트 속성에서 WOFF, WOFF2, TTF, OTF 폰트를 추가할 수 있으며 프로젝트에 함께 저장됩니다.
+
+| 단축키 | 동작 |
+| --- | --- |
+| Shift + 클릭 | 다중 선택 |
+| Alt + 클릭 | 그룹 안의 레이어 하나 선택 |
+| 방향키 / Shift + 방향키 | 1px / 10px 이동 |
+| Ctrl/Cmd + A | 보이는 잠금 해제 레이어 선택 |
+| Ctrl/Cmd + C / V | 같은 편집기 탭에서 레이어 복사 / 붙여넣기 |
+| Ctrl/Cmd + D | 복제 |
+| Ctrl/Cmd + G / Shift + Ctrl/Cmd + G | 그룹화 / 해제 |
+| Ctrl/Cmd + Z / Shift + Ctrl/Cmd + Z | 실행 취소 / 다시 실행 |
+| Delete / Esc | 선택 레이어 삭제 / 선택 해제 |
+
+## AI 템플릿 규격
+
+**AI 템플릿 가져오기**에 HTML과 CSS를 붙여넣습니다. SVG 탭에 입력하면 별도 벡터 레이어로 미리보기와 적용 결과에 추가됩니다. 캔버스 적용은 기존 레이어 위에 배치하고, 템플릿 저장은 보관함에 복사본을 만듭니다.
+
+```html
+<div class="profile" id="paper" data-editable="background" data-label="카드 배경">
+  <img id="portrait" data-editable="image" data-label="프로필 사진" alt="">
+  <h1 id="character-name" data-editable="text" data-label="캐릭터 이름">Mara Vale</h1>
+  <p>FIELD ARCHIVE · 024</p>
+</div>
+```
+
+```css
+.profile { box-sizing: border-box; min-height: 100%; padding: 40px; background: #dedcc4; color: #25362f; }
+#portrait { display: block; width: 220px; height: 220px; object-fit: cover; }
+h1 { font: bold 48px Georgia, serif; }
+```
+
+- 편집 영역마다 고유하고 안정적인 `id`를 사용하세요. `data-label`은 속성 패널의 이름입니다.
+- `text`는 해당 영역의 텍스트 전체를 바꿉니다. `image`는 `<img>`의 이미지를, `background`는 HTML 요소의 배경색 또는 이미지를 바꿉니다.
+- 나머지 태그는 HTML 레이어로 유지됩니다. HTML 레이어의 구조화된 필드 값은 HTML/CSS를 다시 적용할 때 같은 ID에 남습니다.
+- 템플릿의 로컬 파일은 속성 패널에서 추가하거나 PNG·JPEG·WebP 데이터 URL로 포함할 수 있습니다.
+
+## 프로젝트 구조
+
+| 경로 | 역할 |
+| --- | --- |
+| `src/App.tsx` | 프로젝트 전환, 히스토리, 저장, 파일과 단축키 연결 |
+| `src/model.ts` | 프로젝트·레이어 데이터, 그룹과 순서, JSON 검증 |
+| `src/Canvas.tsx` | 확대, 선택, 드래그, 크기·회전, 스냅과 가이드 |
+| `src/LayerPanel.tsx`, `src/Inspector.tsx` | 레이어 관리와 요소별 속성 |
+| `src/Artboard.tsx`, `src/code.ts` | 공용 디자인 렌더링, 코드 검증·정제, 격리된 미리보기 |
+| `src/Dialogs.tsx` | 코드 편집과 미리보기, 프로젝트·템플릿 보관함, PNG 옵션 |
+| `src/storage.ts`, `src/export.tsx` | IndexedDB, 파일 다운로드, PNG 렌더링 |
+| `tests/browser.mjs` | 주요 브라우저 흐름 회귀 검증 |
+
+## 브라우저 검증
+
+`npm run dev` 실행 중 두 번째 터미널에서 `npm run test:browser`를 실행하세요. Windows에서는 설치된 Microsoft Edge를 사용합니다. 다른 환경에서는 먼저 `npx playwright install chromium`을 실행하세요. 서버 주소는 `FOLIO_TEST_URL`, 설치 브라우저 채널은 `FOLIO_BROWSER_CHANNEL`로 지정할 수 있습니다. 테스트는 임시 브라우저 프로필에서 실행됩니다.
+
+## 알려진 제한
+
+- 사용자 HTML은 스크립트 실행 권한이 없는 iframe에서 미리 봅니다. 외부 URL, 스크립트, 이벤트 속성, 양식, 일부 임베드와 애니메이션을 제거합니다. CSS는 레이어에 국한되며 `@import`, `@media`, `@keyframes` 등 CSS @규칙은 생략합니다. HTML 파싱 진단, CSS 구문 오류와 SVG XML 오류를 표시합니다. 일부 HTML 오류는 브라우저 규칙으로 복구합니다.
+- PNG는 SVG `foreignObject`와 브라우저 Canvas로 생성합니다. 브라우저의 글꼴, 블렌드 모드, 복잡한 SVG 필터 처리에 따라 차이가 날 수 있습니다. 캔버스는 한 변 4,096px, PNG는 한 변 16,384px 및 최대 6,400만 픽셀입니다.
+- 저장은 브라우저별로 이뤄집니다. 사이트 데이터 삭제 또는 브라우저 저장 공간 부족에 대비하려면 이미지와 폰트가 포함된 JSON 백업을 사용하세요. 프로젝트 동시 편집은 단일 탭을 기준으로 합니다.

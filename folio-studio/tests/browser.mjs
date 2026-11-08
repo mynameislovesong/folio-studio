@@ -1,0 +1,268 @@
+import assert from 'node:assert/strict';
+import {mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import path from 'node:path';
+import {chromium} from 'playwright';
+
+const url = process.env.FOLIO_TEST_URL || 'http://127.0.0.1:5173';
+const scratch = await mkdtemp(path.join(tmpdir(), 'folio-qa-'));
+let browser;
+try {
+  const channel = process.env.FOLIO_BROWSER_CHANNEL ?? (process.platform === 'win32' ? 'msedge' : undefined);
+  browser = await chromium.launch({channel});
+  const context = await browser.newContext({viewport: {width: 1440, height: 960}, acceptDownloads: true,
+    permissions: ['clipboard-read', 'clipboard-write']});
+  const page = await context.newPage();
+  page.setDefaultTimeout(7000);
+  const errors = [];
+  const external = [];
+  page.on('pageerror', error => errors.push(error.message));
+  page.on('request', request => {
+    if (/^https?:/.test(request.url()) && new URL(request.url()).origin !== new URL(url).origin) external.push(request.url());
+  });
+  const button = name => page.getByRole('button', {name, exact: true});
+  const row = name => page.getByTestId('layer-row').filter({has: button(name)});
+  const field = label => page.getByRole('spinbutton', {name: label, exact: true});
+  const set = async (label, value) => {
+    await field(label).fill(String(value));
+    await field(label).press('Enter');
+  };
+  const saved = () => page.getByText('자동 저장됨', {exact: true}).waitFor();
+  const select = name => button(name).click();
+  const confirmDownload = async name => {
+    const [file] = await Promise.all([page.waitForEvent('download'), button(name).click()]);
+    const destination = path.join(scratch, file.suggestedFilename());
+    await file.saveAs(destination);
+    return destination;
+  };
+  const png = async (scale, points) => {
+    await button('PNG 내보내기').click();
+    const dialog = page.getByRole('dialog', {name: 'PNG 내보내기'});
+    await dialog.getByRole('button', {name: scale + '×', exact: true}).click();
+    const preview = dialog.getByRole('img', {name: 'PNG 출력 미리보기'});
+    await preview.or(dialog.getByRole('alert')).first().waitFor();
+    assert.equal(await dialog.getByRole('alert').count(), 0, await dialog.locator('.export-preview').innerText());
+    await preview.waitFor();
+    const pixels = await preview.evaluate(async (image, locations) => {
+      await image.decode();
+      const canvas = document.createElement('canvas');
+      canvas.width = image.naturalWidth;
+      canvas.height = image.naturalHeight;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(image, 0, 0);
+      return {width: canvas.width, height: canvas.height, colors: locations.map(([x, y]) => Array.from(ctx.getImageData(x, y, 1, 1).data))};
+    }, points);
+    const file = await confirmDownload('PNG 다운로드');
+    const bytes = await readFile(file);
+    assert.equal(bytes.subarray(1, 4).toString(), 'PNG');
+    assert.equal(bytes.readUInt32BE(16), pixels.width);
+    assert.equal(bytes.readUInt32BE(20), pixels.height);
+    await dialog.getByRole('button', {name: '닫기', exact: true}).last().click();
+    return pixels;
+  };
+
+  await page.goto(url);
+  await saved();
+  assert.equal(await page.getByLabel('프로젝트 이름').inputValue(), '나이트폴 아카이브');
+  await page.locator('.board-plane img').last().waitFor();
+  if (process.env.FOLIO_SCREENSHOT) await page.screenshot({path: process.env.FOLIO_SCREENSHOT});
+  const sample = await png(1, [[20, 20], [220, 370]]);
+  assert.deepEqual([sample.width, sample.height], [780, 980]);
+  assert.notDeepEqual(sample.colors[0], sample.colors[1], 'sample SVG must paint');
+  assert.equal(sample.colors[1][3], 255);
+  console.log('PASS sample artwork and PNG file');
+
+  await button('보관함').click();
+  await button('새 프로젝트').click();
+  const title = page.getByLabel('프로젝트 이름');
+  await title.fill('브라우저 검증');
+  await title.press('Enter');
+  await set('너비', 256);
+  await set('높이', 256);
+  await page.getByRole('checkbox', {name: '투명 배경'}).check();
+
+  await button('텍스트 추가').click();
+  const hitText = page.locator('.hit-layer[data-name="텍스트"]');
+  const before = Number(await field('X').inputValue());
+  const hit = await hitText.boundingBox();
+  await page.mouse.move(hit.x + hit.width / 2, hit.y + hit.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(hit.x + hit.width / 2 + 37, hit.y + hit.height / 2 + 13, {steps: 8});
+  await page.mouse.up();
+  assert.notEqual(Number(await field('X').inputValue()), before);
+  await button('실행 취소').click();
+  assert.equal(Number(await field('X').inputValue()), before);
+  await button('다시 실행').click();
+  const resize = await button('크기 조절 se').boundingBox();
+  const originalWidth = Number(await field('너비').inputValue());
+  await page.mouse.move(resize.x + resize.width / 2, resize.y + resize.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(resize.x + resize.width / 2 + 18, resize.y + resize.height / 2 + 15, {steps: 6});
+  await page.mouse.up();
+  await page.waitForFunction(before => Number(document.querySelector('input[aria-label="너비"]')?.value) > before, originalWidth);
+  const rotate = await button('회전 핸들').boundingBox();
+  await page.mouse.move(rotate.x + rotate.width / 2, rotate.y + rotate.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(rotate.x + rotate.width / 2 + 37, rotate.y + rotate.height / 2 + 12, {steps: 6});
+  await page.mouse.up();
+  await page.waitForFunction(() => Number(document.querySelector('input[aria-label="회전 °"]')?.value) !== 0);
+  await set('회전 °', 0);
+  await hitText.dblclick();
+  await page.getByRole('textbox', {name: '캔버스 텍스트 편집'}).fill('직접 편집 성공');
+  await page.getByRole('textbox', {name: '캔버스 텍스트 편집'}).press('Control+Enter');
+  assert.equal(await page.getByLabel('텍스트 내용').inputValue(), '직접 편집 성공');
+  await page.keyboard.press('Control+c');
+  await page.keyboard.press('Control+v');
+  await button('텍스트 복제').waitFor();
+  await page.keyboard.press('Delete');
+  await row('텍스트 복제').waitFor({state: 'detached'});
+  await select('텍스트');
+  await page.keyboard.press('Delete');
+  console.log('PASS canvas move, resize, rotate, undo/redo, text, keyboard copy/paste/delete');
+
+  await page.evaluate(async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 64;
+    canvas.height = 32;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#f01424'; ctx.fillRect(0, 0, 32, 32);
+    ctx.fillStyle = '#183dea'; ctx.fillRect(32, 0, 32, 32);
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+    await navigator.clipboard.write([new ClipboardItem({'image/png': blob})]);
+  });
+  await page.keyboard.press('Control+v');
+  await page.getByRole('slider', {name: '블러', exact: true}).waitFor();
+  const pasted = page.getByTestId('layer-row').first();
+  const pastedName = await pasted.getAttribute('data-layer-name');
+  await set('블러 값', 8);
+  assert.equal(await page.getByRole('slider', {name: '블러', exact: true}).inputValue(), '8');
+  assert.ok(await page.locator('.board-plane img').first().evaluate(image => image.style.filter.includes('blur(8px)')));
+  const withBlur = await png(2, [[1, 1], [256, 256], [230, 256]]);
+  assert.deepEqual([withBlur.width, withBlur.height], [512, 512]);
+  assert.deepEqual(withBlur.colors[0], [0, 0, 0, 0]);
+  assert.ok(withBlur.colors[1][0] > 50 && withBlur.colors[1][2] > 50, 'blur should mix both source colors');
+  await page.reload();
+  await saved();
+  await select(pastedName);
+  assert.equal(await field('블러 값').inputValue(), '8');
+  const raster = await page.locator('.board-plane img').first().getAttribute('src');
+  assert.ok(raster.startsWith('data:image/png;base64,'));
+  await page.keyboard.press('Delete');
+  console.log('PASS native PNG clipboard, image blur, transparent 2× PNG, IndexedDB restore');
+
+  await button('SVG 추가').click();
+  await page.getByRole('textbox', {name: 'SVG 코드'}).fill('<svg><path></svg>');
+  await page.getByRole('alert').waitFor();
+  await page.getByRole('textbox', {name: 'SVG 코드'}).fill('<svg viewBox="0 0 40 40"><style>.symbol{fill:#ec1030}</style><rect class="symbol" width="40" height="40"/></svg>');
+  await button('레이어 추가').click();
+  await select('SVG');
+  await set('X', 10);
+  await set('Y', 10);
+  await button('SVG 마스크 / 클리핑').click();
+  await button('원형 예제').click();
+  await button('변경 적용').click();
+  const masked = await png(4, [[44, 44], [120, 120]]);
+  assert.deepEqual([masked.width, masked.height], [1024, 1024]);
+  assert.deepEqual(masked.colors[0], [0, 0, 0, 0]);
+  assert.deepEqual(masked.colors[1], [236, 16, 48, 255]);
+
+  await button('SVG 마스크 수정').click();
+  await page.getByLabel('마스크 방식').selectOption('luminance');
+  await page.getByRole('textbox', {name: 'SVG 마스크 코드'}).fill('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><path fill="#000" d="M0 0h20v40H0Z"/><path fill="#fff" d="M20 0h20v40H20Z"/></svg>');
+  await button('변경 적용').click();
+  const luminance = await png(1, [[18, 30], [40, 30]]);
+  assert.deepEqual(luminance.colors, [[0, 0, 0, 0], [236, 16, 48, 255]]);
+  await button('SVG 마스크 수정').click();
+  await page.getByLabel('마스크 방식').selectOption('clip');
+  await page.getByRole('textbox', {name: 'SVG 마스크 코드'}).fill('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><defs><clipPath id="cut"><circle cx="20" cy="20" r="18"/></clipPath></defs></svg>');
+  await button('변경 적용').click();
+  const clip = await png(1, [[11, 11], [30, 30]]);
+  assert.deepEqual(clip.colors, [[0, 0, 0, 0], [236, 16, 48, 255]]);
+
+  await button('사각형 추가').click();
+  await set('X', 0);
+  await set('Y', 0);
+  const fill = page.locator('.color-row').filter({hasText: '채우기'}).locator('input');
+  await fill.fill('#1f77bb');
+  const over = await png(1, [[30, 30]]);
+  assert.deepEqual(over.colors[0], [31, 119, 187, 255]);
+  await row('SVG').dragTo(row('사각형'));
+  assert.equal(await page.getByTestId('layer-row').first().getAttribute('data-layer-name'), 'SVG');
+  const reordered = await png(1, [[30, 30]]);
+  assert.deepEqual(reordered.colors[0], [236, 16, 48, 255]);
+  await select('SVG');
+  await button('사각형').click({modifiers: ['Shift']});
+  await button('그룹화').click();
+  assert.equal(await page.locator('.group-row').count(), 1);
+  await button('그룹 해제').click();
+  assert.equal(await page.locator('.group-row').count(), 0);
+  await button('SVG 잠그기').click();
+  assert.equal(await button('SVG').isDisabled(), true);
+  await button('SVG 잠금 해제').click();
+  await page.keyboard.press('Control+a');
+  await page.keyboard.press('Delete');
+  console.log('PASS SVG parsing, masking, 4× PNG, drag reorder, grouping and locking');
+
+  await button('AI 템플릿 가져오기').click();
+  await page.getByRole('textbox', {name: 'HTML 코드'}).fill('<div class="a" class="b">HTML</div>');
+  await page.getByText(/HTML 1행.*duplicate-attribute/).waitFor();
+  const html = '<div class="layout"><h1 id="subject" data-editable="text">대상</h1><div id="paper" data-editable="background">기록</div><img id="photo" data-editable="image" src="https://example.invalid/blocked.png" onerror="window.pwned=true"><script>window.pwned=true</script></div>';
+  await page.getByRole('textbox', {name: 'HTML 코드'}).fill(html);
+  await button('CSS').click();
+  await page.getByRole('textbox', {name: 'CSS 코드'}).fill('.layout {');
+  await page.getByRole('alert').waitFor();
+  await page.getByRole('textbox', {name: 'CSS 코드'}).fill('.layout { width: 96px; height: 96px; overflow: hidden; background: #1f74d0; color: #fff; }');
+  await button('템플릿으로 저장').click();
+  await button('캔버스에 적용').click();
+  const template = page.frameLocator('.board-plane iframe');
+  await template.getByText('대상', {exact: true}).waitFor();
+  assert.equal(await template.locator('script').count(), 0);
+  assert.equal(await template.locator('img').getAttribute('src'), null);
+  await page.getByLabel('subject', {exact: true}).fill('편집 영역 성공');
+  await template.getByText('편집 영역 성공', {exact: true}).waitFor();
+  await button('HTML / CSS 편집').click();
+  await button('CSS').click();
+  await page.getByRole('textbox', {name: 'CSS 코드'}).fill('.layout { width: 96px; height: 96px; overflow: hidden; background: #1f74d0; color: #ffa; }');
+  await button('변경 적용').click();
+  assert.equal(await page.getByLabel('subject', {exact: true}).inputValue(), '편집 영역 성공');
+  const htmlPng = await png(1, [[70, 84], [150, 150]]);
+  assert.deepEqual(htmlPng.colors[0], [31, 116, 208, 255]);
+  assert.deepEqual(htmlPng.colors[1], [0, 0, 0, 0]);
+  await saved();
+  await page.reload();
+  await saved();
+  await page.frameLocator('.board-plane iframe').getByText('편집 영역 성공', {exact: true}).waitFor();
+  assert.equal(await title.inputValue(), '브라우저 검증');
+  await button('보관함').click();
+  const json = await confirmDownload('JSON 백업');
+  await button('템플릿').click();
+  await page.getByRole('button', {name: /가져온 템플릿 256/}).click();
+  await page.frameLocator('.board-plane iframe').getByText('대상', {exact: true}).waitFor();
+  await button('보관함').click();
+  await page.getByLabel('JSON 프로젝트 파일 선택').setInputFiles(json);
+  await page.frameLocator('.board-plane iframe').getByText('편집 영역 성공', {exact: true}).waitFor();
+  await saved();
+  console.log('PASS CSS errors, HTML isolation, editable template data, template library, JSON and PNG');
+
+  const second = await context.newPage();
+  await second.setViewportSize({width: 390, height: 844});
+  await second.goto(url);
+  await second.getByRole('button', {name: '요소 / 레이어'}).click();
+  await second.getByRole('button', {name: '텍스트 추가'}).waitFor();
+  await second.getByRole('button', {name: '속성', exact: true}).click();
+  await second.getByRole('heading', {name: '캔버스 설정'}).waitFor();
+  assert.equal(await second.evaluate(() => document.documentElement.scrollWidth), 390);
+  if (process.env.FOLIO_MOBILE_SCREENSHOT) {
+    await second.getByRole('navigation').getByRole('button', {name: '캔버스', exact: true}).click();
+    await second.screenshot({path: process.env.FOLIO_MOBILE_SCREENSHOT});
+  }
+  assert.deepEqual(external, [], 'untrusted code must not fetch resources');
+  assert.deepEqual(errors, [], 'no browser runtime errors');
+  console.log('PASS mobile tabs and runtime checks');
+} finally {
+  await browser?.close();
+  await rm(scratch, {recursive: true, force: true});
+}
+
+
+

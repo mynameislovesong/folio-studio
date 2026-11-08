@@ -1,0 +1,28 @@
+{
+  "name": "folio-studio",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test:browser": "node tests/browser.mjs"
+  },
+  "dependencies": {
+    "dompurify": "^3.3.3",
+    "lucide-react": "^0.468.0",
+    "parse5": "^8.1.1",
+    "postcss": "^8.5.8",
+    "postcss-selector-parser": "^7.1.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "playwright": "^1.58.2",
+    "typescript": "~5.9.3",
+    "vite": "^8.0.0"
+  }
+}
