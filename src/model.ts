@@ -115,7 +115,9 @@ export function makeLayer(kind: Kind, patch: LayerPatch = {}): Layer {
   return {...base, ...defaults[kind], ...patch};
 }
 
-export function newProject(name = '제목 없는 프로젝트'): Project {
+export const defaultProjectName = '새 파일';
+
+export function newProject(name = defaultProjectName): Project {
   return {
     version: 1, id: uid(), name, width: 1700, height: 800, background: '#000000',
     backgroundImage: '', transparent: false, grid: false, guides: true, snap: true,

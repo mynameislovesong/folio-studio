@@ -63,6 +63,7 @@ try {
 
   await page.goto(url);
   await saved();
+  assert.equal(await page.getByLabel('프로젝트 이름').inputValue(), '새 파일');
   await page.getByText('레이어가 없습니다', {exact: true}).waitFor();
   assert.equal(await page.getByTestId('layer-row').count(), 0);
   const emptyPng = await png(1, [[0, 0]]);
@@ -73,7 +74,7 @@ try {
   if (process.env.FOLIO_SCREENSHOT) await page.screenshot({path: process.env.FOLIO_SCREENSHOT});
   const legacy = path.join(scratch, 'legacy-project.json');
   await writeFile(legacy, JSON.stringify({
-    version: 1, name: '기존 프로젝트', width: 780, height: 980,
+    version: 1, name: '나이트폴 아카이브', width: 780, height: 980,
     layers: [{kind: 'frame', name: '문서 장식선', locked: true, svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 780 980"><path d="M49 79H731M49 240H731M49 859H731M49 928H731M570 271V827"/><path d="M635 743v53m5-53v53m7-53v53"/></svg>'}],
   }));
   await page.getByLabel('JSON 프로젝트 파일 선택').setInputFiles(legacy);
@@ -81,6 +82,7 @@ try {
   await saved();
   await page.reload();
   await saved();
+  assert.equal(await page.getByLabel('프로젝트 이름').inputValue(), '새 파일');
   assert.equal(await button('문서 장식선 잠금 해제').isVisible(), true);
   await button('문서 장식선 레이어 삭제').click();
   await page.getByText('레이어가 없습니다', {exact: true}).waitFor();
@@ -418,7 +420,7 @@ try {
   await saved();
   assert.equal(await page.getByTestId('layer-row').count(), 2);
   await button('보관함').click();
-  await page.getByRole('button', {name: /기존 프로젝트 780/}).click();
+  await page.getByRole('button', {name: /새 파일 780/}).click();
   assert.equal(await page.getByTestId('layer-row').count(), 1);
   await button('보관함').click();
   await button('템플릿').click();

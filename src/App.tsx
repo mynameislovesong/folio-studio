@@ -6,7 +6,7 @@ import {CodeDialog, ExportDialog, LibraryDialog, templateProject} from './Dialog
 import type {CodeTarget} from './Dialogs';
 import {Inspector} from './Inspector';
 import {LayerPanel} from './LayerPanel';
-import {addLayers, asDataUrl, duplicateLayers, groupLayers, isLegacyDecoration, kindNames, loadRaster, makeLayer, newProject, patchLayers, readProject, reorder, round, uid, ungroupLayers} from './model';
+import {addLayers, asDataUrl, defaultProjectName, duplicateLayers, groupLayers, isLegacyDecoration, kindNames, loadRaster, makeLayer, newProject, patchLayers, readProject, reorder, round, uid, ungroupLayers} from './model';
 import type {FontAsset, Kind, Layer, LayerPatch, Project} from './model';
 import {download, listProjects, listTemplates, removeProject, removeTemplate, saveProject, saveTemplate} from './storage';
 import type {SavedProject, SavedTemplate} from './storage';
@@ -86,9 +86,11 @@ export default function App() {
 
   useEffect(() => {
     let alive = true;
-    Promise.all([listProjects(), listTemplates()]).then(([items, presets]) => {
+    Promise.all([listProjects(), listTemplates()]).then(([saved, presets]) => {
       if (!alive) return;
-      items.sort(dateSort);
+      const items = saved.map(item => item.project.name === '나이트폴 아카이브'
+        ? {...item, project: {...item.project, name: defaultProjectName}}
+        : item).sort(dateSort);
       setProjects(items);
       setTemplates(presets.sort(dateSort));
       reset(items.find(item => item.id === activeProjectId())?.project ?? items[0]?.project ?? newProject());
