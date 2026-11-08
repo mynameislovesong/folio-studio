@@ -24,7 +24,7 @@ export function LayerCommands({actions, canGroup, grouped}: {actions: LayerActio
       <button className="icon-button" title="복제 (Ctrl+D)" aria-label="레이어 복제" onClick={actions.duplicate}><Copy /></button>
       <button className="icon-button" title="그룹화 (Ctrl+G)" aria-label="그룹화" onClick={actions.group} disabled={!canGroup}><Group /></button>
       <button className="icon-button" title="그룹 해제 (Ctrl+Shift+G)" aria-label="그룹 해제" onClick={actions.ungroup} disabled={!grouped}><Ungroup /></button>
-      <button className="icon-button danger" title="삭제 (Delete)" aria-label="레이어 삭제" onClick={actions.remove}><Trash2 /></button>
+      <button className="icon-button danger" title="삭제 (Delete / Backspace)" aria-label="레이어 삭제" onClick={actions.remove}><Trash2 /></button>
     </div>
   </div>;
 }
@@ -36,9 +36,11 @@ interface Props {
   add: (kind: Kind) => void;
   patch: (ids: string[], patch: LayerPatch) => void;
   reorder: (ids: string[], target: string) => void;
+  removeLayer: (id: string) => void;
+  removeAllLayers: () => void;
 }
 
-export function LayerPanel({project, selection, select, add, patch, reorder}: Props) {
+export function LayerPanel({project, selection, select, add, patch, reorder, removeLayer, removeAllLayers}: Props) {
   const [drag, setDrag] = useState<{id: string; target: string}>();
   function selectRow(layer: Layer, multi: boolean, alt: boolean) {
     if (layer.locked) return;
@@ -56,9 +58,13 @@ export function LayerPanel({project, selection, select, add, patch, reorder}: Pr
       </div>
     </section>
     <section className="layers-section">
-      <div className="panel-title"><span><Layers3 />레이어 <small className="count">{project.layers.length}</small></span><span className="panel-hint">앞 → 뒤</span></div>
+      <div className="panel-title">
+        <span title="앞에서 뒤 순서"><Layers3 />레이어 <small className="count">{project.layers.length}</small></span>
+        <button className="delete-all-layers" disabled={!project.layers.some(layer => !layer.locked)}
+          onClick={removeAllLayers}>모든 레이어 삭제</button>
+      </div>
       <div className="layer-list">
-        {project.layers.length === 0 && <p className="empty-panel">요소를 추가하면 여기에<br />레이어가 나타납니다.</p>}
+        {project.layers.length === 0 && <p className="empty-panel">레이어가 없습니다</p>}
         {project.layers.map((layer, index) => {
           const Icon = kindIcons[layer.kind];
           const grouped = layer.group && layer.group !== project.layers[index - 1]?.group;
@@ -87,6 +93,8 @@ export function LayerPanel({project, selection, select, add, patch, reorder}: Pr
               </button>
               <button className="row-icon" aria-label={layer.name + (layer.visible ? ' 숨기기' : ' 표시')} title={layer.visible ? '숨기기' : '표시'} onClick={() => patch([layer.id], {visible: !layer.visible})}>{layer.visible ? <Eye /> : <EyeOff />}</button>
               <button className="row-icon" aria-label={layer.name + (layer.locked ? ' 잠금 해제' : ' 잠그기')} title={layer.locked ? '잠금 해제' : '잠그기'} onClick={() => {patch([layer.id], {locked: !layer.locked}); if (!layer.locked) select(selection.filter(id => id !== layer.id));}}>{layer.locked ? <LockKeyhole /> : <LockKeyholeOpen />}</button>
+              <button className="row-icon row-delete" aria-label={layer.name + ' 레이어 삭제'} title={layer.locked ? '잠긴 레이어' : '레이어 삭제'}
+                disabled={layer.locked} onClick={() => removeLayer(layer.id)}><Trash2 /></button>
             </div>
           </div>;
         })}

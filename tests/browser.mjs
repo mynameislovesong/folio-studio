@@ -63,6 +63,13 @@ try {
 
   await page.goto(url);
   await saved();
+  await page.getByText('레이어가 없습니다', {exact: true}).waitFor();
+  assert.equal(await page.getByTestId('layer-row').count(), 0);
+  const emptyPng = await png(1, [[0, 0]]);
+  assert.deepEqual([emptyPng.width, emptyPng.height, emptyPng.colors[0][3]], [1080, 1080, 255]);
+  await button('보관함').click();
+  await button('템플릿').click();
+  await page.getByRole('button', {name: /나이트폴 아카이브 기본 제공 예제/}).click();
   assert.equal(await page.getByLabel('프로젝트 이름').inputValue(), '나이트폴 아카이브');
   await page.locator('.board-plane img').last().waitFor();
   if (process.env.FOLIO_SCREENSHOT) await page.screenshot({path: process.env.FOLIO_SCREENSHOT});
@@ -74,6 +81,7 @@ try {
 
   await button('보관함').click();
   await button('새 프로젝트').click();
+  assert.equal(await page.getByTestId('layer-row').count(), 0);
   const title = page.getByLabel('프로젝트 이름');
   await title.fill('브라우저 검증');
   await title.press('Enter');
@@ -233,6 +241,10 @@ try {
   await saved();
   await page.frameLocator('.board-plane iframe').getByText('편집 영역 성공', {exact: true}).waitFor();
   assert.equal(await title.inputValue(), '브라우저 검증');
+  await button('가져온 템플릿 레이어 삭제').click();
+  assert.equal(await page.locator('.board-plane iframe').count(), 0);
+  await page.keyboard.press('Control+z');
+  await page.frameLocator('.board-plane iframe').getByText('편집 영역 성공', {exact: true}).waitFor();
   await button('보관함').click();
   const json = await confirmDownload('JSON 백업');
   await button('템플릿').click();
@@ -251,8 +263,20 @@ try {
   await set('최소 변', 200);
   await set('최대 변', 360);
   await page.getByRole('checkbox', {name: '투명 배경'}).check();
-  await button('사각형 추가').click();
-  for (const [label, value] of [['X', 270], ['Y', 50], ['너비', 40], ['높이', 40]]) await set(label, value);
+  const imageName = '크기 검증';
+  const imageData = await page.evaluate(() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 40;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#b7cec4';
+    ctx.fillRect(0, 0, 40, 40);
+    return canvas.toDataURL('image/png').split(',')[1];
+  });
+  const [chooser] = await Promise.all([page.waitForEvent('filechooser'), button('이미지 추가').click()]);
+  await chooser.setFiles({name: imageName + '.png', mimeType: 'image/png', buffer: Buffer.from(imageData, 'base64')});
+  await row(imageName).waitFor();
+  await set('X', 270);
+  await set('Y', 50);
   await page.getByTitle('실제 크기', {exact: true}).click();
   await button('확대').click();
   await button('아트보드 선택').click();
@@ -260,10 +284,11 @@ try {
   assert.equal(await page.locator('.selection-box').count(), 0);
   const readSize = async () => [Number(await field('너비').inputValue()), Number(await field('높이').inputValue())];
   const boardBox = () => page.locator('.board-frame').boundingBox();
-  const dragCanvas = async (handle, dx, dy, size, modifier, anchor, zoom = 1.2) => {
-    const rect = await button('캔버스 ' + handle + ' 크기 조절').boundingBox();
+  const dragCanvas = async (handle, dx, dy, size, modifier, anchor, zoom = 1.2, useEdge = false) => {
+    const target = useEdge ? page.locator('.canvas-edge[data-edge="' + handle + '"]') : button('캔버스 ' + handle + ' 크기 조절');
+    const rect = await target.boundingBox();
     const x = rect.x + rect.width / 2;
-    const y = rect.y + rect.height / 2;
+    const y = rect.y + rect.height * (useEdge ? .25 : .5);
     const before = await boardBox();
     if (modifier) await page.keyboard.down(modifier);
     await page.mouse.move(x, y);
@@ -280,7 +305,7 @@ try {
     assert.deepEqual(await readSize(), size);
     assert.equal(await page.locator('.zoom-readout').innerText(), Math.round(zoom * 100) + '%');
   };
-  await dragCanvas('오른쪽', -72, 0, [260, 240], undefined, box => box.x);
+  await dragCanvas('오른쪽', -72, 0, [260, 240], undefined, box => box.x, 1.2, true);
   const clipped = await png(1, [[259, 55]]);
   assert.equal(clipped.width, 260);
   assert.deepEqual(clipped.colors[0], [0, 0, 0, 0]);
@@ -307,7 +332,7 @@ try {
   await button('축소').click();
   await dragCanvas('오른쪽 아래', -17, 25, [340, 300], undefined, undefined, 1 / 1.2);
   await button('4:3').click();
-  await select('사각형');
+  await select(imageName);
   assert.equal(await page.locator('.canvas-handle').count(), 0);
   assert.deepEqual(await Promise.all(['X', 'Y', '너비', '높이'].map(async label => Number(await field(label).inputValue()))), [270, 50, 40, 40]);
   await saved();
@@ -316,7 +341,62 @@ try {
   assert.deepEqual(await readSize(), [360, 270]);
   assert.equal(await field('최소 변').inputValue(), '200');
   assert.equal(await field('최대 변').inputValue(), '360');
-  console.log('PASS 8 artboard handles, zoom-independent drag, Shift/Alt, bounds, clipping, history and PNG');
+  await row(imageName).waitFor();
+  console.log('PASS image upload, artboard edge/corner drag, zoom, clipping, history, save and PNG');
+
+  await button('텍스트 추가').click();
+  const textField = page.getByLabel('텍스트 내용', {exact: true});
+  await textField.fill('AB');
+  await textField.press('End');
+  await textField.press('Backspace');
+  await textField.press('Home');
+  await textField.press('Delete');
+  assert.equal(await textField.inputValue(), '');
+  await row('텍스트').waitFor();
+  await button('텍스트 레이어 삭제').click();
+  assert.equal(await page.locator('.hit-layer[data-name="텍스트"]').count(), 0);
+  assert.equal(await page.locator('.layer-row.selected').count(), 0);
+  await page.keyboard.press('Control+z');
+  await row('텍스트').waitFor();
+
+  await select(imageName);
+  await button('텍스트').click({modifiers: ['Shift']});
+  await page.keyboard.press('Backspace');
+  await page.getByText('레이어가 없습니다', {exact: true}).waitFor();
+  await page.keyboard.press('Control+z');
+  assert.equal(await page.getByTestId('layer-row').count(), 2);
+  await button(imageName + ' 잠그기').click();
+  assert.equal(await button(imageName + ' 레이어 삭제').isDisabled(), true);
+  page.once('dialog', dialog => dialog.dismiss());
+  await button('모든 레이어 삭제').click();
+  assert.equal(await page.getByTestId('layer-row').count(), 2);
+  page.once('dialog', async dialog => {
+    assert.match(dialog.message(), /잠긴 레이어 1개는 유지됩니다/);
+    await dialog.accept();
+  });
+  await button('모든 레이어 삭제').click();
+  assert.equal(await page.getByTestId('layer-row').count(), 1);
+  assert.equal(await button('모든 레이어 삭제').isDisabled(), true);
+  await page.keyboard.press('Control+z');
+  assert.equal(await page.getByTestId('layer-row').count(), 2);
+  await button(imageName + ' 잠금 해제').click();
+  page.once('dialog', dialog => dialog.accept());
+  await button('모든 레이어 삭제').click();
+  await page.getByText('레이어가 없습니다', {exact: true}).waitFor();
+  assert.deepEqual(await readSize(), [360, 270]);
+  assert.equal(await page.getByRole('checkbox', {name: '투명 배경'}).isChecked(), true);
+  const clearedPng = await png(1, [[275, 55]]);
+  assert.deepEqual([clearedPng.width, clearedPng.height, ...clearedPng.colors[0]], [360, 270, 0, 0, 0, 0]);
+  await page.keyboard.press('Control+z');
+  assert.equal(await page.getByTestId('layer-row').count(), 2);
+  await saved();
+  await page.reload();
+  await saved();
+  assert.equal(await page.getByTestId('layer-row').count(), 2);
+  await button('보관함').click();
+  await page.getByRole('button', {name: /나이트폴 아카이브 780/}).click();
+  assert.equal(await page.getByTestId('layer-row').count(), 12);
+  console.log('PASS row and bulk deletion, input safety, locks, one-step undo, reload and project isolation');
 
   const second = await context.newPage();
   await second.setViewportSize({width: 390, height: 844});

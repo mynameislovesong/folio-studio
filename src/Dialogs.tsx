@@ -8,6 +8,7 @@ import type {Layer, LayerPatch, Project} from './model';
 import {download} from './storage';
 import type {SavedProject, SavedTemplate} from './storage';
 import {exportPng} from './export';
+import {exampleProject} from './example';
 
 export function Modal({title, subtitle, children, close, wide = false}: {title: string; subtitle?: string; children: ReactNode; close: () => void; wide?: boolean}) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -210,10 +211,17 @@ export function LibraryDialog({current, projects, templates, close, open, create
           <button className="icon-button" aria-label={item.project.name + ' 복제'} title="프로젝트 복제" onClick={() => copy(item.project)}><Copy /></button>
           <button className="icon-button danger" aria-label={item.project.name + ' 삭제'} title="프로젝트 삭제" onClick={() => remove(item)}><Trash2 /></button>
         </div>) : <p className="empty-panel">저장된 프로젝트가 없습니다.</p>)}
-        {tab === 'templates' && (templates.length ? templates.map(item => <div className="library-row" key={item.id}>
-          <button className="library-entry" onClick={() => apply(item)}><CodeXml size={17} /><span><strong>{item.name}</strong><small>{item.project.width} × {item.project.height} · {date(item.updated)}</small></span></button>
-          <button className="icon-button danger" aria-label={item.name + ' 템플릿 삭제'} title="템플릿 삭제" onClick={() => removePreset(item)}><Trash2 /></button>
-        </div>) : <p className="empty-panel">저장된 템플릿이 없습니다.</p>)}
+        {tab === 'templates' && <>
+          {templates.map(item => <div className="library-row" key={item.id}>
+            <button className="library-entry" onClick={() => apply(item)}><CodeXml size={17} /><span><strong>{item.name}</strong><small>{item.project.width} × {item.project.height} · {date(item.updated)}</small></span></button>
+            <button className="icon-button danger" aria-label={item.name + ' 템플릿 삭제'} title="템플릿 삭제" onClick={() => removePreset(item)}><Trash2 /></button>
+          </div>)}
+          <div className="library-row">
+            <button className="library-entry" onClick={() => open(exampleProject())}><CodeXml size={17} />
+              <span><strong>나이트폴 아카이브</strong><small>기본 제공 예제 · 새 프로젝트로 열기</small></span>
+            </button>
+          </div>
+        </>}
       </div>
     </div>
     <footer className="modal-footer"><button className="button subtle" onClick={importFile}><Upload />JSON 가져오기</button><button className="button subtle" onClick={exportFile}><Download />JSON 백업</button><div className="spacer" /><button className="button subtle" onClick={close}>닫기</button></footer>

@@ -154,7 +154,7 @@ export function Canvas({project, selection, select, commit, onFiles, canvasResiz
     setCanvasPreview(undefined);
   }, [canvasResizeMode, project.width, project.height]);
 
-  function beginCanvasDrag(event: ReactPointer<HTMLButtonElement>, handle: CanvasHandle) {
+  function beginCanvasDrag(event: ReactPointer<HTMLElement>, handle: CanvasHandle) {
     if (event.button !== 0 || canvasDrag.current) return;
     event.stopPropagation();
     event.preventDefault();
@@ -164,7 +164,7 @@ export function Canvas({project, selection, select, commit, onFiles, canvasResiz
     setCanvasPreview({size: canvasDrag.current.size, x: 0, y: 0});
   }
 
-  function updateCanvasDrag(event: ReactPointer<HTMLButtonElement>, apply = false) {
+  function updateCanvasDrag(event: ReactPointer<HTMLElement>, apply = false) {
     const drag = canvasDrag.current;
     if (!drag || event.pointerId !== drag.pointerId) return;
     const dx = (event.clientX - drag.start.x) / drag.zoom;
@@ -178,7 +178,7 @@ export function Canvas({project, selection, select, commit, onFiles, canvasResiz
     if (next.size.width !== drag.size.width || next.size.height !== drag.size.height) resizeCanvas(next.size);
   }
 
-  function cancelCanvasDrag(event: ReactPointer<HTMLButtonElement>) {
+  function cancelCanvasDrag(event: ReactPointer<HTMLElement>) {
     if (event.pointerId !== canvasDrag.current?.pointerId) return;
     canvasDrag.current = null;
     setCanvasPreview(undefined);
@@ -250,7 +250,8 @@ export function Canvas({project, selection, select, commit, onFiles, canvasResiz
         <div style={{width: project.width * zoom, height: project.height * zoom}}>
           <div className={'board-frame' + (canvasResizeMode ? ' canvas-resizing' : '')} style={{
             width: display.width * zoom, height: display.height * zoom, left: (preview?.x ?? 0) * zoom, top: (preview?.y ?? 0) * zoom,
-          }}>
+          }} onPointerMove={event => updateCanvasDrag(event)} onPointerUp={event => updateCanvasDrag(event, true)}
+            onPointerCancel={cancelCanvasDrag} onLostPointerCapture={cancelCanvasDrag}>
             <div className="board-label">
               <button aria-label="아트보드 선택" aria-pressed={canvasResizeMode} onClick={() => setCanvasResizeMode(!canvasResizeMode)}><i />아트보드 01</button>
               <span>{display.width} × {display.height}</span>
@@ -288,11 +289,14 @@ export function Canvas({project, selection, select, commit, onFiles, canvasResiz
                 </div>}
               </div>
             </div>
+            {canvasResizeMode && canvasHandles.filter(handle => !handle.x || !handle.y).map(handle =>
+              <span key={handle.name} className={'canvas-edge ' + handle.cursor} data-edge={handle.name}
+                style={handle.x ? {left: handlePosition[handle.x]} : {top: handlePosition[handle.y]}}
+                aria-hidden="true" onPointerDown={event => beginCanvasDrag(event, handle)} />)}
             {canvasResizeMode && canvasHandles.map(handle => <button type="button" key={handle.name}
               aria-label={'캔버스 ' + handle.name + ' 크기 조절'} className={'canvas-handle ' + handle.cursor}
               style={{left: handlePosition[handle.x], top: handlePosition[handle.y]}}
-              onPointerDown={event => beginCanvasDrag(event, handle)} onPointerMove={event => updateCanvasDrag(event)}
-              onPointerUp={event => updateCanvasDrag(event, true)} onPointerCancel={cancelCanvasDrag} onLostPointerCapture={cancelCanvasDrag} />)}
+              onPointerDown={event => beginCanvasDrag(event, handle)} />)}
           </div>
         </div>
       </div>

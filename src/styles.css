@@ -113,7 +113,9 @@ input[type="number"]::-webkit-inner-spin-button {appearance: none}
 .layer-row.selected .layer-glyph {color: var(--accent); background: #444a32}
 .row-icon {display: grid; place-items: center; color: #999dab; width: 23px; height: 26px; padding: 0; border-radius: 4px}
 .row-icon svg {width: 13px; height: 13px}
-.row-icon:hover {background: #3a3e49; color: #f1f1f4}
+.row-icon:hover:not(:disabled) {background: #3a3e49; color: #f1f1f4}
+.row-delete:hover:not(:disabled), .delete-all-layers:hover:not(:disabled) {background: #4a3334; color: #ffad99}
+.delete-all-layers {color: var(--muted); font-size: 10px; font-weight: 650; border-radius: 4px; padding: 4px 6px}
 .group-row {display: flex; align-items: center; gap: 7px; width: 100%; padding: 7px 8px; color: #c0c4a5; text-align: left}
 .group-row small {color: var(--dim)}
 .group-row:hover {background: #33372c}
@@ -133,6 +135,9 @@ input[type="number"]::-webkit-inner-spin-button {appearance: none}
 .layer-hit-area {position: absolute; inset: 0; overflow: hidden; pointer-events: none}
 .hit-layer {position: absolute; cursor: move; pointer-events: auto}
 .board-frame.canvas-resizing {box-shadow: 0 0 0 1px #79d6ee, 0 0 0 4px #4aa8c62b, 0 10px 36px #080a0e9e}
+.canvas-edge {position: absolute; touch-action: none}
+.canvas-edge.ew {top: 8px; bottom: 8px; width: 10px; transform: translateX(-50%); cursor: ew-resize}
+.canvas-edge.ns {left: 8px; right: 8px; height: 10px; transform: translateY(-50%); cursor: ns-resize}
 .canvas-handle {position: absolute; z-index: 1; transform: translate(-50%, -50%); width: 14px; height: 14px; padding: 0;
   background: #174352; border: 2px solid #8ce8fc; border-radius: 50%; box-shadow: 0 0 0 2px #17232c; touch-action: none}
 .canvas-handle:hover, .canvas-handle:active {background: #8ce8fc; border-color: #c5f7ff}

@@ -4,7 +4,6 @@ import {Canvas} from './Canvas';
 import {checkSvg, svgSize} from './code';
 import {CodeDialog, ExportDialog, LibraryDialog, templateProject} from './Dialogs';
 import type {CodeTarget} from './Dialogs';
-import {exampleProject} from './example';
 import {Inspector} from './Inspector';
 import {LayerPanel} from './LayerPanel';
 import {addLayers, asDataUrl, duplicateLayers, groupLayers, kindNames, loadRaster, makeLayer, newProject, patchLayers, readProject, reorder, round, uid, ungroupLayers} from './model';
@@ -92,10 +91,10 @@ export default function App() {
       items.sort(dateSort);
       setProjects(items);
       setTemplates(presets.sort(dateSort));
-      reset(items.find(item => item.id === activeProjectId())?.project ?? items[0]?.project ?? exampleProject());
+      reset(items.find(item => item.id === activeProjectId())?.project ?? items[0]?.project ?? newProject());
     }).catch(() => {
       if (alive) {
-        reset(exampleProject());
+        reset(newProject());
         tell('저장소를 열 수 없습니다. JSON 백업을 사용하세요.', true);
       }
     });
@@ -215,6 +214,26 @@ export default function App() {
   }
 
   function chosen(value: Project) {return value.layers.filter(layer => selection.includes(layer.id) && !layer.locked);}
+  function deleteLayers(ids: string[]) {
+    const value = current.current?.project;
+    if (!value) return;
+    const requested = new Set(ids);
+    const removed = new Set(value.layers.filter(layer => requested.has(layer.id) && !layer.locked).map(layer => layer.id));
+    if (!removed.size) return;
+    commit({...value, layers: value.layers.filter(layer => !removed.has(layer.id))});
+    setSelection(previous => previous.filter(id => !removed.has(id)));
+  }
+  function deleteAllLayers() {
+    const value = current.current?.project;
+    if (!value) return;
+    const ids = value.layers.filter(layer => !layer.locked).map(layer => layer.id);
+    if (!ids.length) return;
+    const locked = value.layers.length - ids.length;
+    const message = locked
+      ? '잠금 해제된 레이어 ' + ids.length + '개를 삭제할까요? 잠긴 레이어 ' + locked + '개는 유지됩니다.'
+      : '현재 프로젝트의 모든 레이어 ' + ids.length + '개를 삭제할까요?';
+    if (window.confirm(message)) deleteLayers(ids);
+  }
   function order(ids: string[], target: string) {
     commit(value => {
       const moving = value.layers.filter(layer => ids.includes(layer.id));
@@ -224,13 +243,7 @@ export default function App() {
   }
   const actions = {
     duplicate: () => {const value = current.current?.project; if (value) addWithSelection(duplicateLayers(value, chosen(value)));},
-    remove: () => {
-      commit(value => {
-        const remove = new Set(chosen(value).map(layer => layer.id));
-        return remove.size ? {...value, layers: value.layers.filter(layer => !remove.has(layer.id))} : value;
-      });
-      setSelection([]);
-    },
+    remove: () => deleteLayers(selection),
     group: () => {
       const value = current.current?.project;
       if (!value) return;
@@ -256,7 +269,10 @@ export default function App() {
       if (modifier && pressed === 'g' && selection.length) {event.preventDefault(); if (event.shiftKey) actions.ungroup(); else actions.group();}
       if (modifier && pressed === 'a' && project) {event.preventDefault(); selectLayers(project.layers.filter(layer => layer.visible && !layer.locked).map(layer => layer.id));}
       if (modifier && pressed === 's' && project) {event.preventDefault(); saveProject(project).then(() => tell('프로젝트를 저장했습니다.')).catch(fail);}
-      if (pressed === 'delete' && selection.length) {event.preventDefault(); actions.remove();}
+      if ((pressed === 'delete' || pressed === 'backspace') && selection.length) {
+        event.preventDefault();
+        actions.remove();
+      }
       if (pressed === 'escape') {setSelection([]); setCanvasResizeMode(false);}
       if (selection.length && ['arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(pressed) && !modifier) {
         event.preventDefault();
@@ -376,6 +392,7 @@ export default function App() {
     <nav className="mobile-tabs" aria-label="작업 공간">{([['left', '요소 / 레이어'], ['canvas', '캔버스'], ['right', '속성']] as const).map(([value, label]) => <button key={value} className={mobile === value ? 'chosen' : ''} onClick={() => setMobile(value)}>{label}</button>)}</nav>
     <main className={'workspace show-' + mobile + (!left ? ' left-closed' : '') + (!right ? ' right-closed' : '')}>
       <aside className="left-panel" aria-label="요소 및 레이어"><LayerPanel project={project} selection={selection} select={selectLayers} add={add}
+        removeLayer={id => deleteLayers([id])} removeAllLayers={deleteAllLayers}
         patch={(ids, patch) => commit(value => patchLayers(value, ids, patch))} reorder={order} /></aside>
       <Canvas key={project.id} project={project} selection={selection} select={selectLayers} commit={commit} onFiles={addFiles}
         canvasResizeMode={canvasResizeMode} setCanvasResizeMode={selectCanvas}
