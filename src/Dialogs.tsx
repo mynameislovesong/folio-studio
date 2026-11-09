@@ -1,6 +1,5 @@
 import {useEffect, useRef, useState} from 'react';
-import type {ReactNode} from 'react';
-import {AlertCircle, BookOpen, CodeXml, Download, FileImage, FolderOpen, Plus, Save, Trash2, Upload, X, Copy} from 'lucide-react';
+import {AlertCircle, BookOpen, CodeXml, Download, FileImage, FolderOpen, Plus, Save, Trash2, Upload, Copy} from 'lucide-react';
 import {Artboard} from './Artboard';
 import {checkSvg, cleanSvg, compileHtml, svgSize} from './code';
 import {defaultCss, defaultHtml, makeLayer, newProject} from './model';
@@ -10,21 +9,11 @@ import type {SavedProject, SavedTemplate} from './storage';
 import {exportPng} from './export';
 import {templateGuide} from './templateGuide';
 
-type DialogNotice = {message: string; error?: boolean};
-
-export function Modal({title, subtitle, children, close, notice, wide = false}: {title: string; subtitle?: string; children: ReactNode; close: () => void; notice?: DialogNotice; wide?: boolean}) {
-  const ref = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
-    const dialog = ref.current;
-    if (dialog && !dialog.open) dialog.showModal();
-    return () => {if (dialog?.open) dialog.close();};
-  }, []);
-  return <dialog className={wide ? 'modal wide' : 'modal'} ref={ref} aria-label={title} onCancel={event => {event.preventDefault(); close();}}>
-    <header className="modal-heading"><div><h2>{title}</h2>{subtitle && <p>{subtitle}</p>}</div><button className="icon-button" aria-label="닫기" title="닫기" onClick={close}><X /></button></header>
-    {children}
-    {notice && <p role={notice.error ? 'alert' : 'status'} className={'modal-notice' + (notice.error ? ' error-box' : '')}>{notice.message}</p>}
-  </dialog>;
-}
+import {Modal} from './Modal';
+import type {DialogNotice} from './Modal';
+import {loadHtmlFile} from './htmlImport';
+import type {ImportedHtml} from './htmlImport';
+import {HtmlPreviewDialog} from './HtmlPreviewDialog';
 
 function TemplateGuideDialog({close}: {close: () => void}) {
   const guide = useRef<HTMLTextAreaElement>(null);
@@ -55,13 +44,14 @@ export type CodeTarget = {mode: 'template' | 'add-html' | 'add-svg'} | {mode: 'e
 const demoMask = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="48" fill="#fff"/></svg>';
 const tabLabels: Record<CodeTab, string> = {html: 'HTML', css: 'CSS', svg: 'SVG', mask: 'SVG 마스크'};
 
-export function CodeDialog({project, target, close, apply, save, notice}: {
+export function CodeDialog({project, target, close, apply, save, notice, restore}: {
   project: Project;
   target: CodeTarget;
   close: () => void;
   apply: (layers: Layer[], patch: LayerPatch) => void;
   save: (name: string, layers: Layer[]) => void;
   notice?: DialogNotice;
+  restore: (project: Project) => void;
 }) {
   const existing = target.mode === 'edit' ? target.layer : undefined;
   const initialTab = target.mode === 'edit' ? target.tab : target.mode === 'add-svg' ? 'svg' : 'html';
@@ -69,6 +59,10 @@ export function CodeDialog({project, target, close, apply, save, notice}: {
   const tabs: CodeTab[] = target.mode === 'template' ? ['html', 'css', 'svg'] : isMask ? ['mask'] : initialTab === 'svg' ? ['svg'] : ['html', 'css'];
   const [tab, setTab] = useState<CodeTab>(initialTab);
   const [showGuide, setShowGuide] = useState(false);
+  const [htmlFile, setHtmlFile] = useState<ImportedHtml>();
+  const [htmlError, setHtmlError] = useState('');
+  const [readingHtml, setReadingHtml] = useState(false);
+  const htmlInput = useRef<HTMLInputElement>(null);
   const [sources, setSources] = useState({
     html: existing?.html ?? (target.mode === 'add-html' ? defaultHtml : ''),
     css: existing?.css ?? (target.mode === 'add-html' ? defaultCss : ''),
@@ -131,6 +125,21 @@ export function CodeDialog({project, target, close, apply, save, notice}: {
   const valid = !error && layers.length > 0;
   const editor = <Modal close={close} notice={notice} wide title={isMask ? 'SVG 마스크 / 클리핑' : target.mode === 'template' ? 'AI 템플릿 가져오기' : existing ? '코드 편집' : initialTab === 'svg' ? 'SVG 추가' : '사용자 HTML 추가'}
     subtitle={isMask ? '레이어에 적용할 SVG 모양을 붙여넣으세요.' : '코드를 붙여넣고 결과를 확인한 뒤 적용하세요.'}>
+    {target.mode === 'template' && <div className="html-import-row">
+      <button className="button subtle" disabled={readingHtml} onClick={() => htmlInput.current?.click()}><Upload />HTML 가져오기</button>
+      <span className="muted">{readingHtml ? 'HTML 파일을 읽는 중…' : 'HTML 파일은 별도 미리보기로 열립니다. 편집 프로젝트로 복원하면 새 프로젝트가 만들어집니다.'}</span>
+      <input ref={htmlInput} type="file" hidden accept=".html,.htm,text/html" aria-label="HTML 파일 선택" onChange={async event => {
+        const file = event.currentTarget.files?.[0];
+        event.currentTarget.value = '';
+        if (!file) return;
+        setHtmlError('');
+        setReadingHtml(true);
+        try {setHtmlFile(await loadHtmlFile(file));}
+        catch (reason) {setHtmlError(reason instanceof Error ? reason.message : 'HTML 파일을 열 수 없습니다.');}
+        finally {setReadingHtml(false);}
+      }} />
+      {htmlError && <div className="error-box html-import-error" role="alert">{htmlError}</div>}
+    </div>}
     <div className="code-layout">
       <div className="code-editor">
         {!existing && <label className="field-stack"><span>이름</span><input value={name} maxLength={100} onChange={event => setName(event.target.value)} /></label>}
@@ -179,7 +188,8 @@ export function CodeDialog({project, target, close, apply, save, notice}: {
       <button className="button primary" disabled={!valid} onClick={() => apply(layers, patch)}>{existing ? '변경 적용' : target.mode === 'template' ? '캔버스에 적용' : '레이어 추가'}</button>
     </footer>
   </Modal>;
-  return <>{editor}{showGuide && <TemplateGuideDialog close={() => setShowGuide(false)} />}</>;
+  return <>{editor}{showGuide && <TemplateGuideDialog close={() => setShowGuide(false)} />}
+    {htmlFile && <HtmlPreviewDialog imported={htmlFile} close={() => setHtmlFile(undefined)} restore={restore} />}</>;
 }
 
 export function ExportDialog({project, close}: {project: Project; close: () => void}) {

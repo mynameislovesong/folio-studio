@@ -387,7 +387,7 @@ export default function App() {
         <button className="button quiet canvas-settings" title="캔버스 설정 및 크기 조절" aria-pressed={canvasResizeMode}
           onClick={() => {selectCanvas(!canvasResizeMode); setRight(true); setMobile('canvas');}}><ScanLine /><span>캔버스</span></button>
         <button className="button quiet" title="코드 모드" onClick={() => codeLayer?.kind === 'html' ? openCode(codeLayer) : codeLayer?.kind === 'svg' || codeLayer?.kind === 'frame' ? openCode(codeLayer, 'svg') : setDialog({mode: 'add-html'})}><CodeXml /><span>코드</span></button>
-        <button className="button quiet import-button" onClick={() => setDialog({mode: 'template'})}><LayoutTemplate /><span>AI 템플릿 가져오기</span></button>
+        <button className="button quiet import-button" aria-label="AI 템플릿 가져오기" onClick={() => setDialog({mode: 'template'})}><LayoutTemplate /><span>AI 템플릿 가져오기</span></button>
         <span className="tool-separator desktop-panel" />
         <button className={'icon-button desktop-panel' + (right ? ' active' : '')} title="속성 패널" aria-label="속성 패널" aria-pressed={right} onClick={() => setRight(!right)}><PanelRight /></button>
       </div>
@@ -416,7 +416,7 @@ export default function App() {
       save={() => savePreset(project.name, project)} importFile={() => jsonInput.current?.click()}
       exportFile={() => download(new Blob([JSON.stringify(project, null, 2)], {type: 'application/json'}), project.name + '.json')} />}
     {dialog === 'export' && <ExportDialog project={project} close={close} />}
-    {dialog && typeof dialog !== 'string' && <CodeDialog project={project} target={dialog} close={close} notice={notice}
+    {dialog && typeof dialog !== 'string' && <CodeDialog project={project} target={dialog} close={close} notice={notice} restore={reset}
       apply={(layers, patch) => {
         if (dialog.mode === 'edit') commit(value => patchLayers(value, [dialog.layer.id], patch));
         else addWithSelection(layers.map(layer => ({...layer, id: uid(),
