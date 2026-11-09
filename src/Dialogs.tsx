@@ -189,7 +189,8 @@ export function CodeDialog({project, target, close, apply, save, notice, restore
     </footer>
   </Modal>;
   return <>{editor}{showGuide && <TemplateGuideDialog close={() => setShowGuide(false)} />}
-    {htmlFile && <HtmlPreviewDialog imported={htmlFile} close={() => setHtmlFile(undefined)} restore={restore} />}</>;
+    {htmlFile && <HtmlPreviewDialog imported={htmlFile} close={() => setHtmlFile(undefined)} restore={restore}
+      apply={layer => apply([layer], {})} />}</>;
 }
 
 export function ExportDialog({project, close}: {project: Project; close: () => void}) {

@@ -1,16 +1,17 @@
 import {useEffect, useMemo, useRef, useState} from 'react';
-import {Copy, Download, Expand, Minus, Plus} from 'lucide-react';
+import {Copy, Download, Expand, Layers, Minus, Plus} from 'lucide-react';
+import {compileHtml} from './code';
 import {Modal} from './Modal';
 import type {DialogNotice} from './Modal';
 import {NumberField, Toggle} from './Inspector';
 import {previewDocument, previewSizeLimits} from './htmlImport';
 import type {ImportedHtml} from './htmlImport';
-import {clamp} from './model';
-import type {Project} from './model';
+import {clamp, makeLayer} from './model';
+import type {Layer, Project} from './model';
 import {download} from './storage';
 
-export function HtmlPreviewDialog({imported, close, restore}: {
-  imported: ImportedHtml; close: () => void; restore: (project: Project) => void;
+export function HtmlPreviewDialog({imported, close, restore, apply}: {
+  imported: ImportedHtml; close: () => void; restore: (project: Project) => void; apply: (layer: Layer) => void;
 }) {
   const [mode, setMode] = useState<'design' | 'code'>('design');
   const [size, setSize] = useState(imported.size);
@@ -50,6 +51,17 @@ export function HtmlPreviewDialog({imported, close, restore}: {
     }
   }
 
+  function applyHtml() {
+    try {
+      compileHtml(imported.source, '', {}, 'import-check');
+    } catch {
+      setNotice({message: '이 파일의 HTML/CSS를 레이어에 적용할 수 없습니다. 코드 보기에서 원본을 확인하세요.', error: true});
+      return;
+    }
+    const name = imported.file.name.replace(/\.html?$/i, '').trim().slice(0, 100) || '가져온 HTML';
+    apply(makeLayer('html', {name, html: imported.source, w: size.width, h: size.height}));
+  }
+
   return <Modal title="HTML 파일 미리보기" subtitle={imported.file.name} wide close={close} notice={notice}>
     <div className="html-viewer">
       <div className="html-viewer-toolbar">
@@ -85,11 +97,14 @@ export function HtmlPreviewDialog({imported, close, restore}: {
       </> : <textarea className="code-input html-source" readOnly spellCheck={false} aria-label="HTML 원본 코드" value={imported.source} ref={code} />}
       {imported.invalidProject && <p className="muted">내장 프로젝트 데이터가 유효하지 않아 원본 HTML 미리보기로 열었습니다.</p>}
       {imported.project && <p className="muted">Folio Studio 프로젝트 데이터가 있습니다. 복원하면 현재 작업과 별도의 새 편집 프로젝트로 열립니다.</p>}
+      <p className="muted">적용하면 현재 프로젝트에 HTML 레이어 1개가 추가됩니다. 레이어에는 편집기가 지원하는 HTML/CSS만 반영됩니다.</p>
     </div>
     <footer className="modal-footer">
       <button className="button subtle" onClick={() => download(imported.file, imported.file.name)}><Download />HTML 다운로드</button>
       {mode === 'code' && <button className="button subtle" onClick={copy}><Copy />코드 복사</button>}
-      {imported.project && <button className="button primary" onClick={() => restore(imported.project!)}>편집 프로젝트로 복원</button>}
+      {imported.project && <button className="button subtle" onClick={() => restore(imported.project!)}>편집 프로젝트로 복원</button>}
+      <div className="spacer" />
+      <button className="button primary" onClick={applyHtml}><Layers />적용</button>
     </footer>
   </Modal>;
 }

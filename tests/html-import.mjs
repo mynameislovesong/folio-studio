@@ -118,6 +118,20 @@ try {
   assert.equal(await draft.inputValue(), '<p>보존할 초안</p>');
   console.log('PASS native HTML layout, transparent iframe, sandbox, resource policy, zoom, clipboard and byte-for-byte download');
 
+  await upload(file('windows98.htm', original));
+  await button('적용').click();
+  await preview.waitFor({state: 'detached'});
+  assert.equal(await name.inputValue(), '유지할 프로젝트');
+  assert.equal(await page.getByTestId('layer-row').count(), 2);
+  assert.equal(await button('windows98').getAttribute('aria-pressed'), 'true');
+  assert.equal(await page.getByRole('spinbutton', {name: '너비', exact: true}).inputValue(), '1700');
+  assert.equal(await page.getByRole('spinbutton', {name: '높이', exact: true}).inputValue(), '800');
+  await page.frameLocator('iframe[title="windows98 미리보기"]').getByText('Windows 98', {exact: true}).waitFor();
+  await button('실행 취소').click();
+  assert.equal(await page.getByTestId('layer-row').count(), 1);
+  await button('AI 템플릿 가져오기').click();
+  console.log('PASS applying HTML as one selected, undoable layer in the current project');
+
   await upload(file('broken.html', '<p>원본 디자인</p><script type="application/json" id="folio-studio-project">{"version":2}</script>'));
   await preview.getByText(/데이터가 유효하지 않아/).waitFor();
   assert.equal(await preview.getByRole('button', {name: '편집 프로젝트로 복원'}).count(), 0);

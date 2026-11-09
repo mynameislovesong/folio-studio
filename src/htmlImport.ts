@@ -1,7 +1,7 @@
 import {parse, parseFragment, serialize} from 'parse5';
 import type {DefaultTreeAdapterTypes as Html} from 'parse5';
 import postcss from 'postcss';
-import {canvasSizeLimits, kinds, readProject, safeRaster} from './model';
+import {canvasSizeLimits, htmlImportLimit, kinds, readProject, safeRaster} from './model';
 import type {Kind, Project} from './model';
 
 export const previewSizeLimits = {min: 16, max: 8192};
@@ -132,7 +132,7 @@ function inferSize(root: Html.Element, styles: string[]): Size | undefined {
 
 export async function loadHtmlFile(file: File): Promise<ImportedHtml> {
   if (!/\.html?$/i.test(file.name)) throw new Error('.html 또는 .htm 파일을 선택하세요.');
-  if (file.size > 20 * 1024 * 1024) throw new Error('20MB 이하의 HTML 파일을 선택하세요.');
+  if (file.size > htmlImportLimit) throw new Error('20MB 이하의 HTML 파일을 선택하세요.');
   let source: string;
   try {
     source = new TextDecoder('utf-8', {fatal: true, ignoreBOM: true}).decode(await file.arrayBuffer());
