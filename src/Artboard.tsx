@@ -2,6 +2,8 @@ import {useMemo} from 'react';
 import type {CSSProperties} from 'react';
 import {compileHtml, fontCss, iframeDocument, svgUrl} from './code';
 import {safeRaster} from './model';
+import {prepareHtmlLayer, previewDocument} from './htmlImport';
+import {htmlDocumentImage} from './htmlDocumentImage';
 import type {FontAsset, Layer, Project} from './model';
 
 export function position(layer: Layer): CSSProperties {
@@ -37,8 +39,34 @@ export function CodeContent({layer, fonts, exportMode = false}: {layer: Layer; f
     style={{display: 'block', width: '100%', height: '100%', border: 0, pointerEvents: 'none', colorScheme: 'normal', background: 'transparent'}} />;
 }
 
+function HtmlDocumentLayer({layer, viewport, exportMode}: {
+  layer: Layer; viewport: NonNullable<Layer['htmlViewport']>; exportMode: boolean;
+}) {
+  const {width, height, external} = viewport;
+  const src = useMemo(() => {
+    try {
+      const document = prepareHtmlLayer(layer.html, layer.css, layer.fields).document;
+      return exportMode ? htmlDocumentImage(document, width, height) : previewDocument(document, external);
+    } catch (cause) {
+      if (exportMode) throw new Error('‘' + layer.name + '’ HTML 레이어의 PNG용 문서를 만들 수 없습니다.', {cause});
+      return null;
+    }
+  }, [layer.html, layer.css, layer.fields, width, height, external, exportMode, layer.name]);
+  if (!src) return <div className="code-error">HTML 문서를 표시할 수 없습니다.</div>;
+  const style: CSSProperties = {
+    display: 'block', width, height, border: 0, transformOrigin: 'top left',
+    transform: 'scale(' + layer.w / width + ',' + layer.h / height + ')',
+    pointerEvents: 'none', colorScheme: 'normal', background: 'transparent',
+  };
+  return <div style={{width: '100%', height: '100%', overflow: 'hidden'}}>
+    {exportMode ? <img src={src} alt="" style={style} /> : <iframe title={layer.name + ' 미리보기'}
+      sandbox="" inert tabIndex={-1} referrerPolicy="no-referrer" srcDoc={src} style={style} />}
+  </div>;
+}
+
 function Artwork({layer, fonts, exportMode}: {layer: Layer; fonts: FontAsset[]; exportMode: boolean}) {
   const vector = useMemo(() => svgUrl(layer.svg), [layer.svg]);
+  if (layer.kind === 'html' && layer.htmlViewport) return <HtmlDocumentLayer layer={layer} viewport={layer.htmlViewport} exportMode={exportMode} />;
   if (layer.kind === 'html') return <CodeContent layer={layer} fonts={fonts} exportMode={exportMode} />;
   if (layer.kind === 'text') return <div style={textStyle(layer)}>{layer.text}</div>;
   if (layer.kind === 'image') {

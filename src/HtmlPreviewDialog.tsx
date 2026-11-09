@@ -1,12 +1,11 @@
 import {useEffect, useMemo, useRef, useState} from 'react';
 import {Copy, Download, Expand, Layers, Minus, Plus} from 'lucide-react';
-import {compileHtml} from './code';
 import {Modal} from './Modal';
 import type {DialogNotice} from './Modal';
 import {NumberField, Toggle} from './Inspector';
-import {previewDocument, previewSizeLimits} from './htmlImport';
+import {previewDocument} from './htmlImport';
 import type {ImportedHtml} from './htmlImport';
-import {clamp, makeLayer} from './model';
+import {clamp, htmlViewportLimits, makeLayer} from './model';
 import type {Layer, Project} from './model';
 import {download} from './storage';
 
@@ -23,12 +22,12 @@ export function HtmlPreviewDialog({imported, close, restore, apply}: {
   const viewport = useRef<HTMLDivElement>(null);
   const code = useRef<HTMLTextAreaElement>(null);
   const srcDoc = useMemo(() => {
-    try {return previewDocument(imported, external);} catch {return undefined;}
+    try {return previewDocument(imported.document, external);} catch {return undefined;}
   }, [imported, external]);
   const fit = available.width && available.height
     ? Math.min(1, (available.width - 24) / size.width, (available.height - 24) / size.height) : 0.1;
   const scale = zoom ?? Math.max(0.01, fit);
-  const {min, max} = previewSizeLimits;
+  const {min, max} = htmlViewportLimits;
 
   useEffect(() => {
     const element = viewport.current;
@@ -52,14 +51,9 @@ export function HtmlPreviewDialog({imported, close, restore, apply}: {
   }
 
   function applyHtml() {
-    try {
-      compileHtml(imported.source, '', {}, 'import-check');
-    } catch {
-      setNotice({message: '이 파일의 HTML/CSS를 레이어에 적용할 수 없습니다. 코드 보기에서 원본을 확인하세요.', error: true});
-      return;
-    }
     const name = imported.file.name.replace(/\.html?$/i, '').trim().slice(0, 100) || '가져온 HTML';
-    apply(makeLayer('html', {name, html: imported.source, w: size.width, h: size.height}));
+    apply(makeLayer('html', {name, html: imported.source, ratio: true, w: size.width, h: size.height,
+      htmlViewport: {...size, external}}));
   }
 
   return <Modal title="HTML 파일 미리보기" subtitle={imported.file.name} wide close={close} notice={notice}>
@@ -97,14 +91,14 @@ export function HtmlPreviewDialog({imported, close, restore, apply}: {
       </> : <textarea className="code-input html-source" readOnly spellCheck={false} aria-label="HTML 원본 코드" value={imported.source} ref={code} />}
       {imported.invalidProject && <p className="muted">내장 프로젝트 데이터가 유효하지 않아 원본 HTML 미리보기로 열었습니다.</p>}
       {imported.project && <p className="muted">Folio Studio 프로젝트 데이터가 있습니다. 복원하면 현재 작업과 별도의 새 편집 프로젝트로 열립니다.</p>}
-      <p className="muted">적용하면 현재 프로젝트에 HTML 레이어 1개가 추가됩니다. 레이어에는 편집기가 지원하는 HTML/CSS만 반영됩니다.</p>
+      <p className="muted">적용하면 현재 문서와 미리보기 크기가 HTML 레이어 1개로 추가됩니다.</p>
     </div>
     <footer className="modal-footer">
       <button className="button subtle" onClick={() => download(imported.file, imported.file.name)}><Download />HTML 다운로드</button>
       {mode === 'code' && <button className="button subtle" onClick={copy}><Copy />코드 복사</button>}
       {imported.project && <button className="button subtle" onClick={() => restore(imported.project!)}>편집 프로젝트로 복원</button>}
       <div className="spacer" />
-      <button className="button primary" onClick={applyHtml}><Layers />적용</button>
+      <button className="button primary" disabled={srcDoc === undefined} onClick={applyHtml}><Layers />적용</button>
     </footer>
   </Modal>;
 }

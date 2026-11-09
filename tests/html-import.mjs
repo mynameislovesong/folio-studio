@@ -10,21 +10,35 @@ const fixture = `<!doctype html>
 <meta http-equiv="refresh" content="0;url=${external}/redirect">
 <link rel="dns-prefetch" href="${external}">
 <style>
-  body { margin: 0 }
+  :root { --card-fill: rgb(192, 192, 192); }
   .artboard { width: 1700px; aspect-ratio: 17 / 8; position: relative; display: grid; grid-template-columns: 1fr 1fr; }
-  .window { position: absolute; left: 104px; top: 72px; width: 460px; height: 240px; display: flex;
-    transform: translate(7px, 9px); background: silver; border: 2px outset white; box-shadow: 3px 3px black; }
+  .window { position: absolute; left: 0; top: 0; width: min(460px, 50vw); height: 30vh; display: flex;
+    transform: translate(7px, 9px); border: 2px outset white; box-shadow: 3px 3px black; }
   .title { color: white; background: navy; font-family: monospace }
-  @media (max-width: 600px) { .window { left: 3px } }
+  body.sheet > .artboard > .window { left: max(4%, 104px); top: 9%; }
+  @media (min-width: 1600px) { body.sheet > .artboard > .window { background: var(--card-fill); } }
+  @font-face { font-family: Probe; src: local("Arial"); }
+  @keyframes stable { from { letter-spacing: 0 } to { letter-spacing: 0 } }
+  .title { font-family: Probe, monospace; font-size: clamp(12px, 2vw, 36px); animation: stable 1s linear infinite; }
 </style>
 <script>document.body.dataset.executed = 'true'; parent.document.body.dataset.compromised = 'true'; fetch('${external}/script');</script>
-</head><body><main class="artboard">
-  <section class="window"><b class="title">Windows 98</b><a href="${external}/link">링크</a></section>
+</head><body class="sheet" style="margin:0; color:#ecffdb"><main class="artboard">
+  <section class="window"><b class="title" id="card-title" data-editable="text">Windows 98</b><a href="${external}/link">링크</a></section>
   <img alt="내장 이미지" src="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='1'%20height='1'%3E%3C/svg%3E">
   <img alt="외부 이미지" src="${external}/image.svg">
 </main></body></html>`;
 const file = (name, source, mimeType = 'text/html') => ({name, mimeType, buffer: Buffer.from(source)});
 const previewName = 'HTML 파일 미리보기';
+
+const measureDesign = frame => frame.locator('body').evaluate(body => {
+  const windowElement = body.querySelector('.window');
+  const title = body.querySelector('.title');
+  const bounds = windowElement.getBoundingClientRect();
+  return {viewport: [innerWidth, innerHeight], position: [bounds.x, bounds.y, bounds.width, bounds.height],
+    bodyClass: body.className, bodyColor: getComputedStyle(body).color, background: getComputedStyle(windowElement).backgroundColor,
+    titleSize: getComputedStyle(title).fontSize, animation: getComputedStyle(title).animationName,
+    transparent: getComputedStyle(body).backgroundColor, css: document.querySelector('style').textContent};
+});
 
 function controls(page) {
   const button = name => page.getByRole('button', {name, exact: true});
@@ -50,6 +64,7 @@ try {
   const name = page.getByLabel('프로젝트 이름');
   await name.fill('유지할 프로젝트');
   await name.press('Enter');
+  await page.getByRole('checkbox', {name: '투명 배경', exact: true}).check();
   await button('텍스트 추가').click();
   await page.getByTestId('layer-row').waitFor();
   await page.getByText('자동 저장됨', {exact: true}).waitFor();
@@ -90,6 +105,16 @@ try {
   assert.equal(layout.scripts, 0);
   assert.equal(layout.executed, undefined);
   assert.equal(layout.href, null);
+  const reference = await context.newPage({viewport: {width: 1700, height: 800}});
+  await reference.setViewportSize({width: 1700, height: 800});
+  // Compare native layout with a local fixture, leaving out its deliberate navigation/network probes.
+  await reference.setContent(fixture.replace(/<meta http-equiv=.*\n|<link rel=.*\n|<script>.*<\/script>|<img alt="외부 이미지".*\n/g, ''));
+  const expectedDesign = await measureDesign(reference);
+  assert.equal(expectedDesign.titleSize, '34px');
+  assert.equal(expectedDesign.background, 'rgb(192, 192, 192)');
+  assert.equal(expectedDesign.animation, 'stable');
+  assert.deepEqual(await measureDesign(frame), expectedDesign);
+  await reference.close();
   assert.equal(await page.locator('body').getAttribute('data-compromised'), null);
   await frame.getByAltText('내장 이미지').evaluate(image => image.decode());
   assert.deepEqual(requests, []);
@@ -126,11 +151,57 @@ try {
   assert.equal(await button('windows98').getAttribute('aria-pressed'), 'true');
   assert.equal(await page.getByRole('spinbutton', {name: '너비', exact: true}).inputValue(), '1700');
   assert.equal(await page.getByRole('spinbutton', {name: '높이', exact: true}).inputValue(), '800');
-  await page.frameLocator('iframe[title="windows98 미리보기"]').getByText('Windows 98', {exact: true}).waitFor();
+  const appliedFrame = page.frameLocator('iframe[title="windows98 미리보기"]');
+  assert.deepEqual(await measureDesign(appliedFrame), expectedDesign);
+  await button('확대').click();
+  assert.deepEqual(await measureDesign(appliedFrame), expectedDesign);
+  await button('PNG 내보내기').click();
+  const exportDialog = page.getByRole('dialog', {name: 'PNG 내보내기'});
+  const png = exportDialog.getByRole('img', {name: 'PNG 출력 미리보기'});
+  const alert = exportDialog.getByRole('alert');
+  await png.or(alert).first().waitFor();
+  assert.equal(await alert.count(), 0, await exportDialog.locator('.export-preview').innerText());
+  const pixels = await png.evaluate(async image => {
+    await image.decode();
+    const canvas = document.createElement('canvas');
+    canvas.width = image.naturalWidth;
+    canvas.height = image.naturalHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(image, 0, 0);
+    return [[500, 250], [1680, 780]].map(([x, y]) => [...ctx.getImageData(x, y, 1, 1).data]);
+  });
+  assert.deepEqual(pixels, [[192, 192, 192, 255], [0, 0, 0, 0]]);
+  assert.deepEqual(requests, ['/image.svg']);
+  await exportDialog.getByRole('button', {name: '닫기', exact: true}).last().click();
   await button('실행 취소').click();
   assert.equal(await page.getByTestId('layer-row').count(), 1);
+  await button('다시 실행').click();
+  await page.getByText('자동 저장됨', {exact: true}).waitFor();
+  await page.reload();
+  assert.deepEqual(await measureDesign(appliedFrame), expectedDesign);
+  await button('windows98').click();
+  await page.getByLabel('card-title', {exact: true}).fill('수정한 제목');
+  await appliedFrame.getByText('수정한 제목', {exact: true}).waitFor();
+  await button('HTML / CSS 편집').click();
+  assert.ok((await page.getByRole('textbox', {name: 'HTML 코드'}).inputValue()).includes('body class="sheet"'));
+  await button('CSS').click();
+  await page.getByRole('textbox', {name: 'CSS 코드'}).fill('body { background-color: #24352c }');
+  await button('변경 적용').click();
+  await appliedFrame.getByText('수정한 제목', {exact: true}).waitFor();
+  assert.equal(await appliedFrame.locator('body').evaluate(body => getComputedStyle(body).backgroundColor), 'rgb(36, 53, 44)');
+  const layerWidth = page.getByRole('spinbutton', {name: '너비', exact: true});
+  await layerWidth.fill('850');
+  await layerWidth.press('Enter');
+  assert.equal(await appliedFrame.locator('body').evaluate(() => innerWidth), 1700);
+  await page.getByText('자동 저장됨', {exact: true}).waitFor();
+  await page.reload();
+  await appliedFrame.getByText('수정한 제목', {exact: true}).waitFor();
+  await button('windows98').click();
+  assert.equal(await layerWidth.inputValue(), '850');
+  assert.equal(await appliedFrame.locator('body').evaluate(body => getComputedStyle(body).backgroundColor), 'rgb(36, 53, 44)');
+  await button('windows98 레이어 삭제').click();
   await button('AI 템플릿 가져오기').click();
-  console.log('PASS applying HTML as one selected, undoable layer in the current project');
+  console.log('PASS browser/preview/canvas parity, undo/redo, reload, editable fields, zoom and PNG pixels');
 
   await upload(file('broken.html', '<p>원본 디자인</p><script type="application/json" id="folio-studio-project">{"version":2}</script>'));
   await preview.getByText(/데이터가 유효하지 않아/).waitFor();

@@ -2,6 +2,7 @@ import {useState} from 'react';
 import type {ReactNode} from 'react';
 import {BoxSelect, CodeXml, ImagePlus, Layers3, ScanLine, X} from 'lucide-react';
 import {compileHtml} from './code';
+import {prepareHtmlLayer} from './htmlImport';
 import {changeCanvasSide, presetCanvasSize} from './canvasSize';
 import {blendModes, canvasSizeLimits, clamp, fonts, kindNames, round} from './model';
 import type {Layer, LayerPatch, Project} from './model';
@@ -59,7 +60,10 @@ export function Inspector({project, selection, change, edit, actions, openCode, 
   const group = selected.some(layer => layer.group);
   let fields: ReturnType<typeof compileHtml>['fields'] = [];
   if (one?.kind === 'html') {
-    try {fields = compileHtml(one.html, one.css, one.fields, 'fields').fields;} catch { /* Code dialog shows parser errors. */ }
+    try {
+      fields = one.htmlViewport ? prepareHtmlLayer(one.html, one.css, one.fields).fields
+        : compileHtml(one.html, one.css, one.fields, 'fields').fields;
+    } catch { /* Code dialog shows parser errors. */ }
   }
   if (!selected.length) return <div className="inspector">
     <div className="inspector-heading"><span className="heading-icon"><ScanLine size={19} /></span><div><span className="panel-hint">ARTBOARD</span><h2>캔버스 설정</h2></div></div>
@@ -168,6 +172,11 @@ export function Inspector({project, selection, change, edit, actions, openCode, 
         {field.type !== 'text' && <button className="button subtle full" onClick={() => chooseImage('field:' + field.id)}><ImagePlus />{field.label} 이미지 선택</button>}
         {Object.hasOwn(one.fields, field.id) && <button className="text-button" onClick={() => {const values = {...one.fields}; delete values[field.id]; edit({fields: values});}}>원래 {field.label} 복원</button>}
       </div>)}
+      {one.htmlViewport && <>
+        <p className="muted">원본 문서 · {one.htmlViewport.width} × {one.htmlViewport.height} px</p>
+        <Toggle label="외부 HTTPS 리소스 허용" value={one.htmlViewport.external}
+          set={external => edit({htmlViewport: {...one.htmlViewport!, external}})} />
+      </>}
       <button className="button subtle full" onClick={() => openCode(one)}><CodeXml />HTML / CSS 편집</button>
     </Section>}
     <Section title="모양 효과">

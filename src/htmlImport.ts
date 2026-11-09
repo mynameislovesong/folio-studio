@@ -1,10 +1,10 @@
-import {parse, parseFragment, serialize} from 'parse5';
+import {defaultTreeAdapter, parse, parseFragment, serialize} from 'parse5';
 import type {DefaultTreeAdapterTypes as Html} from 'parse5';
 import postcss from 'postcss';
-import {canvasSizeLimits, htmlImportLimit, kinds, readProject, safeRaster} from './model';
-import type {Kind, Project} from './model';
+import {canvasSizeLimits, htmlImportLimit, htmlViewportLimits, kinds, readProject, safeRaster} from './model';
+import type {FieldType, Kind, Project} from './model';
+import type {EditableField} from './code';
 
-export const previewSizeLimits = {min: 16, max: 8192};
 const defaultSize = {width: 1700, height: 800};
 const projectMarker = 'folio-studio-project';
 const htmlNamespace = 'http://www.w3.org/1999/xhtml';
@@ -54,6 +54,7 @@ function safePreviewTree(parent: Html.ParentNode, styles: string[], projects: st
     node.attrs = node.attrs.filter(attribute => attribute.name !== 'referrerpolicy'
       && (!(tag === 'a' || tag === 'area') || !['href', 'ping'].includes(attribute.name)));
     safePreviewTree(node, styles, projects);
+    if (tag === 'template') safePreviewTree(defaultTreeAdapter.getTemplateContent(node as Html.Template), [], []);
     return true;
   });
 }
@@ -63,7 +64,7 @@ function pixelValue(value?: string) {
 }
 
 function validPreviewSize(width?: number, height?: number) {
-  const {min, max} = previewSizeLimits;
+  const {min, max} = htmlViewportLimits;
   return width && height && width >= min && width <= max && height >= min && height <= max
     ? {width: Math.round(width), height: Math.round(height)} : undefined;
 }
@@ -140,11 +141,7 @@ export async function loadHtmlFile(file: File): Promise<ImportedHtml> {
     throw new Error('파일을 읽을 수 없습니다. UTF-8로 저장한 HTML 파일을 선택하세요.');
   }
   if (!/<(?:!doctype\s+html\b|[a-z][\w:-]*(?:\s|\/?>))/i.test(source)) throw new Error('표시할 HTML 마크업을 찾을 수 없습니다.');
-  const parsed = parse(source.replace(/^\uFEFF/, ''), {scriptingEnabled: false});
-  const root = children(parsed).find(node => node.namespaceURI === htmlNamespace && node.tagName === 'html')!;
-  const styles: string[] = [];
-  const projects: string[] = [];
-  safePreviewTree(parsed, styles, projects);
+  const {parsed, root, styles, projects} = prepareDocument(source);
   let project: Project | undefined;
   if (projects.length === 1) {
     try {project = readEmbeddedProject(projects[0]);} catch { /* Fall back to the original HTML viewer. */ }
@@ -153,8 +150,72 @@ export async function loadHtmlFile(file: File): Promise<ImportedHtml> {
   return {file, source, document: parsed, size: size ?? defaultSize, inferred: !!size, project, invalidProject: projects.length > 0 && !project};
 }
 
-export function previewDocument(imported: ImportedHtml, external: boolean) {
-  const root = children(imported.document).find(node => node.tagName === 'html')!;
+function prepareDocument(source: string) {
+  const parsed = parse(source.replace(/^\uFEFF/, ''), {scriptingEnabled: false});
+  const root = children(parsed).find(node => node.namespaceURI === htmlNamespace && node.tagName === 'html')!;
+  const styles: string[] = [];
+  const projects: string[] = [];
+  safePreviewTree(parsed, styles, projects);
+  return {parsed, root, styles, projects};
+}
+
+function setAttribute(node: Html.Element, name: string, value: string) {
+  const existing = node.attrs.find(attribute => attribute.name === name);
+  if (existing) existing.value = value;
+  else node.attrs.push({name, value});
+}
+
+export function prepareHtmlLayer(source: string, css: string, values: Record<string, string>) {
+  const {parsed, root} = prepareDocument(source);
+  if (css.trim()) {
+    const head = children(root).find(node => node.tagName === 'head')!;
+    const style = parseFragment('<style>' + css.replace(/<\/style/gi, '<\\/style') + '</style>').childNodes[0];
+    defaultTreeAdapter.appendChild(head, style);
+  }
+  const fields: EditableField[] = [];
+  const used = new Set<string>();
+  const style = document.createElement('div').style;
+  function visit(parent: Html.ParentNode) {
+    for (const node of children(parent)) {
+      const type = attr(node, 'data-editable');
+      if ((type === 'text' || type === 'background' || (type === 'image' && node.tagName === 'img'))
+        && !['html', 'head', 'body', 'style'].includes(node.tagName)) {
+        const named = attr(node, 'id')?.trim();
+        const number = fields.length + 1;
+        let id = named && named.length <= 120 ? named : 'field-' + number;
+        if (used.has(id)) id += '-' + number;
+        while (used.has(id)) id += '-';
+        used.add(id);
+        style.cssText = attr(node, 'style') ?? '';
+        const override = Object.hasOwn(values, id) ? values[id] : undefined;
+        const value = type === 'text' ? content(node) : type === 'image' ? attr(node, 'src') ?? '' : style.backgroundColor;
+        fields.push({id, type: type as FieldType, label: attr(node, 'data-label') || named || id, value: override ?? value});
+        if (override !== undefined) {
+          if (type === 'text') {
+            node.childNodes = [];
+            defaultTreeAdapter.insertText(node, override);
+          } else if (type === 'image') {
+            if (safeRaster(override)) setAttribute(node, 'src', override);
+            else node.attrs = node.attrs.filter(attribute => attribute.name !== 'src');
+          } else if (safeRaster(override) || /^#[\da-f]{6}$/i.test(override)) {
+            style.backgroundImage = safeRaster(override) ? 'url("' + override + '")' : 'none';
+            if (safeRaster(override)) {
+              style.backgroundSize = 'cover';
+              style.backgroundPosition = 'center';
+            } else style.backgroundColor = override;
+            setAttribute(node, 'style', style.cssText);
+          }
+        }
+      }
+      visit(node);
+    }
+  }
+  visit(root);
+  return {document: parsed, fields};
+}
+
+export function previewDocument(document: Html.Document, external: boolean) {
+  const root = children(document).find(node => node.tagName === 'html')!;
   const head = children(root).find(node => node.tagName === 'head')!;
   const resources = external ? 'data: https:' : 'data:';
   const policy = "default-src 'none'; script-src 'none'; base-uri 'none'; form-action 'none'; style-src 'unsafe-inline' "
@@ -162,5 +223,5 @@ export function previewDocument(imported: ImportedHtml, external: boolean) {
   const security = parseFragment('<meta http-equiv="Content-Security-Policy" content="' + policy + '"><meta name="referrer" content="no-referrer">');
   const originalHead = head.childNodes;
   head.childNodes = [...security.childNodes, ...originalHead];
-  try {return serialize(imported.document, {scriptingEnabled: false});} finally {head.childNodes = originalHead;}
+  try {return serialize(document, {scriptingEnabled: false});} finally {head.childNodes = originalHead;}
 }

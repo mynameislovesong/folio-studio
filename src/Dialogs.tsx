@@ -11,7 +11,7 @@ import {templateGuide} from './templateGuide';
 
 import {Modal} from './Modal';
 import type {DialogNotice} from './Modal';
-import {loadHtmlFile} from './htmlImport';
+import {loadHtmlFile, prepareHtmlLayer} from './htmlImport';
 import type {ImportedHtml} from './htmlImport';
 import {HtmlPreviewDialog} from './HtmlPreviewDialog';
 
@@ -92,9 +92,13 @@ export function CodeDialog({project, target, close, apply, save, notice, restore
       patch = {svg: sources.svg};
       layers = [{...existing, ...patch, x: 0, y: 0, rotation: 0, visible: true}];
     } else if (existing) {
-      const result = compileHtml(sources.html, sources.css, existing.fields, 'draft-template');
-      fields = result.fields.length;
-      warnings = result.warnings;
+      if (existing.htmlViewport) {
+        fields = prepareHtmlLayer(sources.html, sources.css, existing.fields).fields.length;
+      } else {
+        const result = compileHtml(sources.html, sources.css, existing.fields, 'draft-template');
+        fields = result.fields.length;
+        warnings = result.warnings;
+      }
       patch = {html: sources.html, css: sources.css};
       layers = [{...existing, ...patch, x: 0, y: 0, rotation: 0, visible: true}];
     } else {
@@ -177,7 +181,9 @@ export function CodeDialog({project, target, close, apply, save, notice, restore
             <div style={{transformOrigin: 'top left', transform: 'scale(' + previewZoom + ')'}}><Artboard project={preview} /></div>
           </div> : <div className="empty-preview"><CodeXml size={24} /><span>미리 볼 코드가 없습니다</span></div>}
         </div>
-        <p className="muted">스크립트, 외부 URL과 미지원 리소스는 렌더링에서 제외됩니다.</p>
+        <p className="muted">{existing?.htmlViewport
+          ? '원본 문서 모드 · 스크립트는 차단되며 외부 리소스는 레이어 설정을 따릅니다.'
+          : '스크립트, 외부 URL과 미지원 리소스는 렌더링에서 제외됩니다.'}</p>
       </div>
     </div>
     <footer className="modal-footer">
@@ -212,6 +218,8 @@ export function ExportDialog({project, close}: {project: Project; close: () => v
   }, [project, scale, transparent]);
   return <Modal close={close} title="PNG 내보내기" subtitle="출력 이미지의 미리보기와 해상도를 확인하세요.">
     <div className="export-body">
+      {project.layers.some(layer => layer.visible && layer.kind === 'html' && layer.htmlViewport) &&
+        <p className="muted">원본 HTML 레이어는 브라우저의 SVG 렌더링으로 합성합니다. 외부 리소스는 제외되며 동적 효과와 일부 문서 배경은 화면과 다를 수 있습니다.</p>}
       <div className="export-preview checker">{result ? <img src={result.url} alt="PNG 출력 미리보기" /> : error ?
         <div className="error-box" role="alert"><AlertCircle size={16} />{error}</div> : <div className="empty-preview"><FileImage size={24} />미리보기 생성 중…</div>}</div>
       <div className="export-options">

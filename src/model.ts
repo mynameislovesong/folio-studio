@@ -56,6 +56,7 @@ export interface Layer {
   maskMode: 'alpha' | 'luminance' | 'clip';
   html: string;
   css: string;
+  htmlViewport?: {width: number; height: number; external: boolean};
   fields: Record<string, string>;
 }
 export interface FontAsset {name: string; family: string; src: string}
@@ -182,6 +183,7 @@ export function ungroupLayers(project: Project, ids: string[]) {
 export const safeRaster = (value: string) => /^data:image\/(?:png|jpe?g|webp);base64,[a-z\d+/=\s]+$/i.test(value);
 export const safeFont = (value: string) => /^data:font\/(?:woff2?|ttf|otf);base64,[a-z\d+/=\s]+$/i.test(value);
 export const htmlImportLimit = 20 * 1024 * 1024;
+export const htmlViewportLimits = {min: 16, max: 8192};
 const record = (value: unknown): Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 const str = (value: unknown, fallback = '', max = 2_000_000) => typeof value === 'string' ? value.slice(0, max) : fallback;
 const num = (value: unknown, fallback: number, min: number, max: number) => typeof value === 'number' && Number.isFinite(value) ? clamp(value, min, max) : fallback;
@@ -218,6 +220,15 @@ export function readProject(value: unknown): Project {
     for (const key of ['visible', 'locked', 'ratio', 'shadow', 'vertical', 'flipX', 'flipY', 'tint'] as const) if (typeof item[key] === 'boolean') layer[key] = item[key];
     for (const key of ['svg', 'mask', 'css', 'text'] as const) layer[key] = str(item[key], layer[key]);
     layer.html = str(item.html, layer.html, htmlImportLimit);
+    if (layer.kind === 'html' && item.htmlViewport) {
+      const {width, height} = record(item.htmlViewport);
+      const {min, max} = htmlViewportLimits;
+      if (typeof width === 'number' && Number.isInteger(width) && width >= min && width <= max
+        && typeof height === 'number' && Number.isInteger(height) && height >= min && height <= max) {
+        // A backup can carry dimensions but cannot opt the recipient into network requests.
+        layer.htmlViewport = {width, height, external: false};
+      }
+    }
     layer.name = str(item.name, layer.name, 100);
     layer.font = str(item.font, layer.font, 100);
     layer.color = hex(item.color, layer.color);
